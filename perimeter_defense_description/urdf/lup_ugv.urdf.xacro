@@ -1,0 +1,267 @@
+<?xml version="1.0"?>
+<!--
+  LUP UGV: outdoor skid-steer UGV with the footprint, mass and speed of a
+  Clearpath Jackal (0.51 x 0.43 x 0.25 m, ~17 kg, 2.0 m/s), a 360 degree
+  gpu_lidar on a 0.85 m mast and a forward RGB camera.
+
+  The base_link origin is on the ground, at the centre of the wheel base.
+  Sensor and drive parameters come from config/lup_ugv.yaml through the
+  xacro arguments below (the launch file passes them).
+-->
+<robot name="lup_ugv" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="ns" default="lup1"/>
+  <xacro:arg name="enable_camera" default="true"/>
+  <xacro:arg name="lidar_samples" default="720"/>
+  <xacro:arg name="lidar_rate" default="10"/>
+  <xacro:arg name="lidar_range_max" default="30.0"/>
+  <xacro:arg name="lidar_noise_std" default="0.02"/>
+  <xacro:arg name="lidar_height" default="0.85"/>
+  <xacro:arg name="camera_width" default="640"/>
+  <xacro:arg name="camera_height" default="480"/>
+  <xacro:arg name="camera_rate" default="10"/>
+  <xacro:arg name="camera_hfov" default="1.25"/>
+  <xacro:arg name="camera_noise_std" default="0.007"/>
+  <xacro:arg name="max_linear_velocity" default="2.0"/>
+  <xacro:arg name="max_angular_velocity" default="3.0"/>
+  <xacro:arg name="max_linear_acceleration" default="1.5"/>
+  <xacro:arg name="wheel_separation_multiplier" default="1.12"/>
+  <xacro:arg name="wheel_mu_longitudinal" default="1.0"/>
+  <xacro:arg name="wheel_mu_lateral" default="0.3"/>
+
+  <xacro:property name="ns" value="$(arg ns)"/>
+
+  <!-- Jackal-like dimensions -->
+  <xacro:property name="chassis_x" value="0.42"/>
+  <xacro:property name="chassis_y" value="0.31"/>
+  <xacro:property name="chassis_z" value="0.14"/>
+  <xacro:property name="chassis_mass" value="15.0"/>
+  <xacro:property name="wheel_radius" value="0.098"/>
+  <xacro:property name="wheel_width" value="0.045"/>
+  <xacro:property name="wheel_mass" value="0.5"/>
+  <xacro:property name="wheel_base" value="0.262"/>
+  <xacro:property name="track" value="0.375"/>
+  <xacro:property name="chassis_z_center" value="0.155"/>
+
+  <material name="olive"><color rgba="0.33 0.36 0.24 1"/></material>
+  <material name="black"><color rgba="0.08 0.08 0.08 1"/></material>
+  <material name="grey"><color rgba="0.45 0.45 0.45 1"/></material>
+
+  <xacro:macro name="box_inertia" params="m x y z">
+    <inertia ixx="${m * (y*y + z*z) / 12.0}" ixy="0" ixz="0"
+             iyy="${m * (x*x + z*z) / 12.0}" iyz="0"
+             izz="${m * (x*x + y*y) / 12.0}"/>
+  </xacro:macro>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${chassis_z_center}"/>
+      <geometry><box size="${chassis_x} ${chassis_y} ${chassis_z}"/></geometry>
+      <material name="olive"/>
+    </visual>
+    <visual>
+      <!-- Fenders over the wheels -->
+      <origin xyz="0 0 ${chassis_z_center + 0.06}"/>
+      <geometry><box size="0.508 0.43 0.03"/></geometry>
+      <material name="olive"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${chassis_z_center}"/>
+      <geometry><box size="${chassis_x} ${chassis_y} ${chassis_z}"/></geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 ${chassis_z_center}"/>
+      <mass value="${chassis_mass}"/>
+      <xacro:box_inertia m="${chassis_mass}" x="${chassis_x}" y="${chassis_y}" z="${chassis_z}"/>
+    </inertial>
+  </link>
+
+  <xacro:macro name="wheel" params="name x y">
+    <link name="${name}_wheel">
+      <visual>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="${wheel_mass}"/>
+        <inertia ixx="${wheel_mass * (3*wheel_radius*wheel_radius + wheel_width*wheel_width) / 12.0}"
+                 ixy="0" ixz="0"
+                 iyy="${wheel_mass * wheel_radius * wheel_radius / 2.0}" iyz="0"
+                 izz="${wheel_mass * (3*wheel_radius*wheel_radius + wheel_width*wheel_width) / 12.0}"/>
+      </inertial>
+    </link>
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${name}_wheel"/>
+      <origin xyz="${x} ${y} ${wheel_radius}"/>
+      <axis xyz="0 1 0"/>
+    </joint>
+    <!-- Friction direction 1 is the wheel axle (collision z), so mu1 is the
+         lateral friction and mu2 the rolling-direction friction. Low lateral
+         friction lets the skid-steer base turn like a real Jackal. -->
+    <gazebo reference="${name}_wheel">
+      <mu1>$(arg wheel_mu_lateral)</mu1>
+      <mu2>$(arg wheel_mu_longitudinal)</mu2>
+      <fdir1>0 0 1</fdir1>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:wheel name="front_left" x="${wheel_base/2}" y="${track/2}"/>
+  <xacro:wheel name="rear_left" x="${-wheel_base/2}" y="${track/2}"/>
+  <xacro:wheel name="front_right" x="${wheel_base/2}" y="${-track/2}"/>
+  <xacro:wheel name="rear_right" x="${-wheel_base/2}" y="${-track/2}"/>
+
+  <!-- Sensor mast and lidar -->
+  <link name="mast_link">
+    <visual>
+      <origin xyz="0 0 ${($(arg lidar_height) - 0.27) / 2}"/>
+      <geometry><cylinder radius="0.018" length="${$(arg lidar_height) - 0.27}"/></geometry>
+      <material name="grey"/>
+    </visual>
+    <inertial>
+      <mass value="0.3"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.0001"/>
+    </inertial>
+  </link>
+  <joint name="mast_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="mast_link"/>
+    <origin xyz="-0.08 0 0.235"/>
+  </joint>
+
+  <link name="lidar_link">
+    <visual>
+      <geometry><cylinder radius="0.05" length="0.07"/></geometry>
+      <material name="black"/>
+    </visual>
+    <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.0005" ixy="0" ixz="0" iyy="0.0005" iyz="0" izz="0.0006"/>
+    </inertial>
+  </link>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_link"/>
+    <origin xyz="-0.08 0 $(arg lidar_height)"/>
+  </joint>
+
+  <gazebo reference="lidar_link">
+    <sensor name="lidar" type="gpu_lidar">
+      <gz_frame_id>${ns}/lidar_link</gz_frame_id>
+      <topic>/${ns}/scan</topic>
+      <update_rate>$(arg lidar_rate)</update_rate>
+      <always_on>true</always_on>
+      <visualize>false</visualize>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>$(arg lidar_samples)</samples>
+            <resolution>1</resolution>
+            <min_angle>${-pi}</min_angle>
+            <max_angle>${pi - 2.0 * pi / $(arg lidar_samples)}</max_angle>
+          </horizontal>
+          <vertical>
+            <samples>1</samples>
+            <resolution>1</resolution>
+            <min_angle>0</min_angle>
+            <max_angle>0</max_angle>
+          </vertical>
+        </scan>
+        <range>
+          <min>0.25</min>
+          <max>$(arg lidar_range_max)</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>$(arg lidar_noise_std)</stddev>
+        </noise>
+        <!-- Ignore visuals flagged 0x2 (chain-link fence mesh), see generate_world.py -->
+        <visibility_mask>4294967293</visibility_mask>
+      </lidar>
+    </sensor>
+  </gazebo>
+
+  <!-- Forward camera -->
+  <link name="camera_link">
+    <visual>
+      <geometry><box size="0.04 0.09 0.04"/></geometry>
+      <material name="black"/>
+    </visual>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+    </inertial>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.20 0 0.30"/>
+  </joint>
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_optical_frame"/>
+    <origin rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
+  <xacro:if value="$(arg enable_camera)">
+    <gazebo reference="camera_link">
+      <sensor name="camera" type="camera">
+        <gz_frame_id>${ns}/camera_optical_frame</gz_frame_id>
+        <topic>/${ns}/camera/image_raw</topic>
+        <update_rate>$(arg camera_rate)</update_rate>
+        <always_on>true</always_on>
+        <camera>
+          <camera_info_topic>/${ns}/camera/camera_info</camera_info_topic>
+          <horizontal_fov>$(arg camera_hfov)</horizontal_fov>
+          <image>
+            <width>$(arg camera_width)</width>
+            <height>$(arg camera_height)</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip><near>0.1</near><far>60</far></clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>$(arg camera_noise_std)</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </gazebo>
+  </xacro:if>
+
+  <!-- Skid-steer drive. The DiffDrive odometry is integrated from the wheel
+       joints; perimeter_defense_sim/odom_noise adds slip and drift on top. -->
+  <gazebo>
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>front_left_wheel_joint</left_joint>
+      <left_joint>rear_left_wheel_joint</left_joint>
+      <right_joint>front_right_wheel_joint</right_joint>
+      <right_joint>rear_right_wheel_joint</right_joint>
+      <wheel_separation>${track * $(arg wheel_separation_multiplier)}</wheel_separation>
+      <wheel_radius>${wheel_radius}</wheel_radius>
+      <max_linear_velocity>$(arg max_linear_velocity)</max_linear_velocity>
+      <min_linear_velocity>${-$(arg max_linear_velocity)}</min_linear_velocity>
+      <max_angular_velocity>$(arg max_angular_velocity)</max_angular_velocity>
+      <min_angular_velocity>${-$(arg max_angular_velocity)}</min_angular_velocity>
+      <max_linear_acceleration>$(arg max_linear_acceleration)</max_linear_acceleration>
+      <min_linear_acceleration>${-$(arg max_linear_acceleration) * 1.5}</min_linear_acceleration>
+      <topic>/${ns}/cmd_vel</topic>
+      <odom_topic>/${ns}/odom_wheel</odom_topic>
+      <tf_topic>/${ns}/tf_wheel</tf_topic>
+      <frame_id>${ns}/odom</frame_id>
+      <child_frame_id>${ns}/base_link</child_frame_id>
+      <odom_publish_frequency>30</odom_publish_frequency>
+    </plugin>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>/${ns}/joint_states</topic>
+    </plugin>
+  </gazebo>
+</robot>

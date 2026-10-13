@@ -1,0 +1,18 @@
+# LUP UGV hardware parameters, passed to lup_ugv.urdf.xacro as xacro arguments.
+# Footprint, mass and top speed follow a Clearpath Jackal.
+lidar_samples: 720          # 0.5 deg resolution, enough to hit a person 3-4 times at 10 m
+lidar_rate: 10
+lidar_range_max: 30.0
+lidar_noise_std: 0.02       # m, gaussian
+lidar_height: 0.85          # m, mast height so the scan plane crosses a person's torso
+camera_width: 640
+camera_height: 480
+camera_rate: 10
+camera_hfov: 1.25
+camera_noise_std: 0.007
+max_linear_velocity: 2.0    # m/s
+max_angular_velocity: 3.0   # rad/s
+max_linear_acceleration: 1.5
+wheel_separation_multiplier: 1.12 # effective track of the skid-steer base, calibrated in sim
+wheel_mu_longitudinal: 1.0
+wheel_mu_lateral: 0.3

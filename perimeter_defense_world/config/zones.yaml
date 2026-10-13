@@ -1,0 +1,77 @@
+# Single source of truth for the FOB-3 base geometry.
+# Coordinates in metres, origin at the south-west corner, x east, y north.
+# The Gazebo world, the Nav2 map, the RViz markers and the dashboard map are
+# all generated from this file, so they always match.
+
+area:
+  width: 40.0
+  height: 28.0
+
+fence:
+  min: [2.0, 2.0]
+  max: [38.0, 26.0]
+  height: 2.0
+  post_spacing: 2.5
+  post_size: 0.08
+  # Thickness used for the collision wall and the occupancy map.
+  thickness: 0.06
+  breaches:
+    - name: north
+      side: north        # gap along y = max_y
+      from: 29.0
+      to: 32.0
+    - name: west
+      side: west         # gap along x = min_x
+      from: 8.0
+      to: 11.0
+
+buildings:
+  - {name: command,    label: "Command",    min: [5.0, 18.0],  max: [12.0, 23.0], height: 3.6, style: concrete}
+  - {name: barracks,   label: "Barracks",   min: [5.0, 5.0],   max: [11.0, 13.0], height: 3.2, style: concrete}
+  - {name: hangar,     label: "Hangar",     min: [16.0, 17.0], max: [24.0, 23.0], height: 4.0, style: metal}
+  - {name: workshop,   label: "Workshop",   min: [28.0, 16.0], max: [34.0, 20.0], height: 3.4, style: metal}
+  - {name: container1, label: "Container",  min: [15.0, 8.0],  max: [17.0, 13.0], height: 2.6, style: container_green}
+  - {name: container2, label: "Container",  min: [25.0, 6.0],  max: [27.0, 12.0], height: 2.6, style: container_tan}
+  - {name: depot,      label: "Ammo depot", min: [18.0, 4.0],  max: [23.0, 8.0],  height: 3.0, style: bunker}
+
+# Smaller static props. All of them are drawn into the occupancy map.
+props:
+  - {name: sandbags_w,  type: sandbags, min: [18.0, 8.8],  max: [19.3, 9.3],  height: 0.8}
+  - {name: sandbags_e,  type: sandbags, min: [21.7, 8.8],  max: [23.0, 9.3],  height: 0.8}
+  - {name: vehicle_1,   type: vehicle,  min: [30.2, 6.5],  max: [32.4, 11.3], height: 1.9}
+  - {name: vehicle_2,   type: vehicle,  min: [32.9, 6.5],  max: [35.1, 11.3], height: 1.9}
+  - {name: tower_sw,    type: tower,    min: [2.6, 2.6],   max: [3.4, 3.4],   height: 4.5}
+  - {name: tower_ne,    type: tower,    min: [36.7, 24.7], max: [37.5, 25.5], height: 4.5}
+
+# Gravel roads drawn on the ground texture only (no collision).
+roads:
+  width: 2.2
+  polylines:
+    - [[8.5, 15.5], [14.5, 15.5], [14.5, 24.8], [3.6, 24.8]]
+    - [[14.5, 15.5], [14.5, 14.0], [25.0, 14.0], [25.0, 15.5]]
+    - [[12.5, 14.0], [12.5, 3.2], [24.0, 3.2], [24.0, 14.0]]
+    - [[25.0, 14.0], [29.0, 14.0], [29.0, 3.8], [36.5, 3.8], [36.5, 24.0]]
+    - [[20.5, 14.0], [20.5, 9.4]]
+
+objective:
+  name: ammo_depot
+  target: [20.5, 9.2]
+  radius: 2.5
+
+# Areas where own personnel may move freely (polygons, counter-clockwise).
+authorized_zones:
+  - name: west_compound
+    polygon: [[3.5, 3.5], [14.0, 3.5], [14.0, 25.0], [3.5, 25.0]]
+  - name: hangar_area
+    polygon: [[13.5, 14.5], [25.5, 14.5], [25.5, 25.0], [13.5, 25.0]]
+
+patrol_routes:
+  lup1: [[3.5, 24.5], [14.0, 24.5], [13.5, 15.0], [3.5, 15.0]]
+  lup2: [[36.0, 4.0], [29.0, 4.0], [29.0, 14.0], [36.0, 24.0]]
+  lup3: [[13.0, 3.0], [13.0, 14.0], [24.0, 14.0], [24.0, 3.0]]
+
+intruder_spawns:
+  north_breach: [30.5, 27.2]
+  west_breach: [0.8, 9.5]
+  north_route_west: [25.5, 14.2]
+  north_route_east: [36.0, 13.0]

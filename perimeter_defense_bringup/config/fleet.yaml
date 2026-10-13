@@ -1,0 +1,23 @@
+# Fleet configuration. Each robot spawns at the first waypoint of its patrol
+# route in zones.yaml, facing the second waypoint.
+robots: [lup1, lup2, lup3]
+
+callsigns:
+  lup1: LUP-1
+  lup2: LUP-2
+  lup3: LUP-3
+
+patrol:
+  patrol_speed: 0.8      # m/s
+  retry_delay: 2.0       # s
+
+intercept:
+  max_speed: 2.0         # m/s, robot top speed
+
+odometry_drift:
+  alpha_rot_from_rot: 0.05
+  alpha_rot_from_trans: 0.01
+  alpha_trans_from_trans: 0.02
+  alpha_trans_from_rot: 0.005
+  scale_error_std: 0.015
+  yaw_bias_std: 0.004

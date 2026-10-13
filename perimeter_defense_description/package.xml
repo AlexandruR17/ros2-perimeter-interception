@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>perimeter_defense_description</name>
+  <version>0.1.0</version>
+  <description>LUP UGV robot description (Jackal-sized outdoor skid-steer UGV with gpu_lidar and camera).</description>
+  <maintainer email="alexandrurizea58@gmail.com">Alexandru Rizea</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
