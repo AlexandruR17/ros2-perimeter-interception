@@ -1,7 +1,13 @@
-# Single source of truth for the FOB-3 base geometry.
+# Single source of truth for the base geometry.
 # Coordinates in metres, origin at the south-west corner, x east, y north.
 # The Gazebo world, the Nav2 map, the RViz markers and the dashboard map are
 # all generated from this file, so they always match.
+# The base, its name and the officer it is named after are fictional.
+
+base:
+  name: "Baza 73 Sprijin \"Căpitan Ion Vulturescu\""
+  unit: "Centrul de Comandă Sector Nord"
+  code: "FOB-3"
 
 area:
   width: 40.0
@@ -26,9 +32,9 @@ fence:
       to: 11.0
 
 buildings:
-  - {name: command,    label: "Command",    min: [5.0, 18.0],  max: [12.0, 23.0], height: 3.6, style: concrete}
-  - {name: barracks,   label: "Barracks",   min: [5.0, 5.0],   max: [11.0, 13.0], height: 3.2, style: concrete}
-  - {name: hangar,     label: "Hangar",     min: [16.0, 17.0], max: [24.0, 23.0], height: 4.0, style: metal}
+  - {name: command,    label: "Command",    min: [5.0, 18.0],  max: [12.0, 23.0], height: 3.6, style: plaster_cream}
+  - {name: barracks,   label: "Barracks",   min: [5.0, 5.0],   max: [11.0, 13.0], height: 3.2, style: plaster_ochre}
+  - {name: hangar,     label: "Hangar",     min: [16.0, 17.0], max: [24.0, 23.0], height: 3.0, style: hangar_arch}
   - {name: workshop,   label: "Workshop",   min: [28.0, 16.0], max: [34.0, 20.0], height: 3.4, style: metal}
   - {name: container1, label: "Container",  min: [15.0, 8.0],  max: [17.0, 13.0], height: 2.6, style: container_green}
   - {name: container2, label: "Container",  min: [25.0, 6.0],  max: [27.0, 12.0], height: 2.6, style: container_tan}
@@ -43,12 +49,13 @@ props:
   - {name: tower_sw,    type: tower,    min: [2.6, 2.6],   max: [3.4, 3.4],   height: 4.5}
   - {name: tower_ne,    type: tower,    min: [36.7, 24.7], max: [37.5, 25.5], height: 4.5}
   - {name: hesco_depot, type: hesco,    min: [17.2, 4.2],  max: [17.8, 8.2],  height: 1.4}
+  - {name: flagpole,    type: flagpole, min: [8.4, 16.9],  max: [8.6, 17.1],  height: 7.0}
 
 # Ground markings drawn on the ground texture only (no collision).
 markings:
   helipad: {center: [27.0, 23.3], radius: 1.9}
 
-# Gravel roads drawn on the ground texture only (no collision).
+# Concrete slab roads drawn on the ground texture only (no collision).
 roads:
   width: 2.2
   polylines:
@@ -80,3 +87,25 @@ intruder_spawns:
   west_breach: [0.8, 9.5]
   north_route_west: [25.5, 14.2]
   north_route_east: [36.0, 13.0]
+
+# Fictional countryside around the base (Romanian plain): farmland strips, a
+# county road with an access road to the main gate, an irrigation canal and
+# acacia windbreaks. Visual only, outside the Nav2 map. Tree rows are kept at
+# least 12 m from the fence so they never fall inside the 10 m detection radius
+# of a robot inside the base.
+surroundings:
+  bounds: {min: [-40.0, -30.0], max: [80.0, 58.0]}
+  farmland_seed: 21
+  county_road: {y: -7.0, width: 7.0}
+  access_road: {x: 20.0, width: 4.0}
+  main_gate: {from: 18.5, to: 21.5}     # on the south fence, closed
+  canal: {x: -14.0, width: 3.0}
+  tree_rows:
+    - {from: [-40.0, -11.5], to: [80.0, -11.5], spacing: 3.5}
+    - {from: [-18.0, -30.0], to: [-18.0, 58.0], spacing: 4.0}
+    - {from: [-40.0, 40.0], to: [80.0, 40.0], spacing: 4.0}
+
+# Area covered by the top-down render (RViz background, dashboard map).
+render:
+  bounds: {min: [-15.0, -12.0], max: [55.0, 40.0]}
+  pixels_per_metre: 30.0

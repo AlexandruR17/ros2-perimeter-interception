@@ -66,3 +66,25 @@ def test_point_in_polygon():
 def test_depot_not_in_authorized_zones(layout):
     for poly in layout.authorized_zones.values():
         assert not point_in_polygon(layout.objective_target, poly)
+
+
+def test_tree_rows_outside_detection_range(layout):
+    # Trees are not in the Nav2 map, so they must stay out of the 10 m detection
+    # radius of any robot inside the fence.
+    (fx0, fy0), (fx1, fy1) = layout.fence_min, layout.fence_max
+    for row in layout.surroundings['tree_rows']:
+        (ax, ay), (bx, by) = row['from'], row['to']
+        for t in [i / 100.0 for i in range(101)]:
+            x, y = ax + (bx - ax) * t, ay + (by - ay) * t
+            dx = max(fx0 - x, 0.0, x - fx1)
+            dy = max(fy0 - y, 0.0, y - fy1)
+            assert (dx * dx + dy * dy) ** 0.5 >= 12.0 - 0.6, (x, y)   # 0.6 m placement jitter
+
+
+def test_render_area_contains_base(layout):
+    assert layout.render_min[0] <= 0.0 and layout.render_min[1] <= 0.0
+    assert layout.render_max[0] >= layout.width and layout.render_max[1] >= layout.height
+
+
+def test_base_is_named(layout):
+    assert layout.name and layout.unit and layout.code

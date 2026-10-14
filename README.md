@@ -12,8 +12,10 @@ The project extends the topic of the author's dissertation (an information
 system for the analysis, control and processing of security incidents) to the
 physical security side.
 
-> Exercise only. All data is simulated. The unit "FOB-3 / North Sector
-> Command Centre" is fictional.
+> Exercise only. All data is simulated. The base, "Baza 73 Sprijin
+> \"Căpitan Ion Vulturescu\"" (code name FOB-3, Centrul de Comandă Sector
+> Nord), the officer it is named after and its location are fictional and do
+> not correspond to any real military site.
 
 ## Status
 
@@ -215,6 +217,16 @@ in this open base with a see-through fence it locked onto wrong modes (up to
 three patrol laps the AMCL error against ground truth was 0.27 m on average
 and 0.57 m at most (measured with a diagnostic script, ground truth is not
 used by any node).
+
+**Setting.** The base sits in a fictional stretch of the Romanian plain:
+farmland strips (wheat, maize, sunflower, rapeseed, ploughed soil), a county
+road with an access road to the main gate, an irrigation canal and acacia
+windbreaks. Buildings follow local military architecture: plastered walls with
+tiled or tin gable roofs, an arched hangar, concrete slab roads, concrete fence
+posts with concertina wire and a flagpole. Everything outside the fence is
+visual only and outside the Nav2 map; tree rows are kept at least 12 m from
+the fence, so they never fall inside a robot's 10 m detection radius (checked
+by a unit test). The name and the surroundings are set in `zones.yaml`.
 
 **Tactical view.** The robot keeps its real Jackal size in the simulation;
 RViz shows it with an enlarged friendly unit symbol (3 x 2 m), as a C2 map

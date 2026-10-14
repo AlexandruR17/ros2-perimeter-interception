@@ -28,14 +28,14 @@ from PIL import ImageEnhance
 from perimeter_defense_world.geometry import BaseLayout, load_layout, package_dir
 
 ALTITUDE = 300.0  # keeps the field of view above the SDF minimum of 0.1 rad
-PX_PER_M = 60.0
 
 
 def camera_model(layout: BaseLayout) -> str:
-    cx, cy = layout.width / 2.0, layout.height / 2.0
-    hfov = 2.0 * math.atan((layout.width / 2.0) / ALTITUDE)
-    w = int(layout.width * PX_PER_M)
-    h = int(layout.height * PX_PER_M)
+    (x0, y0), (x1, y1) = layout.render_min, layout.render_max
+    cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    hfov = 2.0 * math.atan(((x1 - x0) / 2.0) / ALTITUDE)
+    w = int((x1 - x0) * layout.render_px_per_m)
+    h = int((y1 - y0) * layout.render_px_per_m)
     # Pitch down 90 deg, then yaw 90 deg so that the image top is north.
     return f"""
     <model name="ortho_camera"><static>true</static>
@@ -68,7 +68,7 @@ PLANE_DAE = """<?xml version="1.0" encoding="utf-8"?>
     </lambert></technique></profile_COMMON></effect></library_effects>
   <library_materials><material id="mat"><instance_effect url="#fx"/></material></library_materials>
   <library_geometries><geometry id="quad"><mesh>
-    <source id="pos"><float_array id="pos-a" count="12">0 0 0 {w} 0 0 {w} {h} 0 0 {h} 0</float_array>
+    <source id="pos"><float_array id="pos-a" count="12">{x0} {y0} 0 {x1} {y0} 0 {x1} {y1} 0 {x0} {y1} 0</float_array>
       <technique_common><accessor source="#pos-a" count="4" stride="3">
         <param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/>
       </accessor></technique_common></source>
@@ -107,7 +107,8 @@ def write_plane_mesh(out_png: str, layout: BaseLayout) -> str:
     path = base + '.dae'
     with open(path, 'w', encoding='utf-8') as f:
         f.write(PLANE_DAE.format(image=os.path.basename(base + '_rviz.png'),
-                                 w=layout.width, h=layout.height))
+                                 x0=layout.render_min[0], y0=layout.render_min[1],
+                                 x1=layout.render_max[0], y1=layout.render_max[1]))
     return path
 
 
@@ -149,8 +150,9 @@ def render(world_file: str, layout: BaseLayout, out_png: str, models_dir: str,
     with open(os.path.splitext(out_png)[0] + '.yaml', 'w', encoding='utf-8') as f:
         f.write(f'image: {os.path.basename(out_png)}\n'
                 f'# world bounds covered by the image, metres (x east, y north)\n'
-                f'min: [0.0, 0.0]\nmax: [{layout.width}, {layout.height}]\n'
-                f'pixels_per_metre: {PX_PER_M}\n')
+                f'min: [{layout.render_min[0]}, {layout.render_min[1]}]\n'
+                f'max: [{layout.render_max[0]}, {layout.render_max[1]}]\n'
+                f'pixels_per_metre: {layout.render_px_per_m}\n')
     write_plane_mesh(out_png, layout)
 
 

@@ -88,6 +88,13 @@ class BaseLayout:
     patrol_routes: Dict[str, List[Point]]
     intruder_spawns: Dict[str, Point]
     helipad: Optional[Tuple[Point, float]] = None
+    name: str = ''
+    unit: str = ''
+    code: str = ''
+    surroundings: dict = field(default_factory=dict, repr=False)
+    render_min: Point = (0.0, 0.0)
+    render_max: Point = (0.0, 0.0)
+    render_px_per_m: float = 30.0
     raw: dict = field(default_factory=dict, repr=False)
 
     def obstacles(self) -> List[Rect]:
@@ -205,6 +212,14 @@ def load_layout(path: Optional[str] = None) -> BaseLayout:
         patrol_routes={k: [_pt(p) for p in v] for k, v in raw['patrol_routes'].items()},
         intruder_spawns={k: _pt(v) for k, v in raw.get('intruder_spawns', {}).items()},
         helipad=_helipad(raw),
+        name=str(raw.get('base', {}).get('name', '')),
+        unit=str(raw.get('base', {}).get('unit', '')),
+        code=str(raw.get('base', {}).get('code', '')),
+        surroundings=raw.get('surroundings', {}),
+        render_min=_pt(raw.get('render', {}).get('bounds', {}).get('min', [0.0, 0.0])),
+        render_max=_pt(raw.get('render', {}).get('bounds', {}).get(
+            'max', [raw['area']['width'], raw['area']['height']])),
+        render_px_per_m=float(raw.get('render', {}).get('pixels_per_metre', 30.0)),
         raw=raw,
     )
 

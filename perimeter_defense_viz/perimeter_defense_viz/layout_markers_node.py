@@ -7,6 +7,7 @@ building labels and patrol routes. Everything comes from zones.yaml.
 
 from __future__ import annotations
 
+import unicodedata
 from typing import List
 
 import rclpy
@@ -18,6 +19,12 @@ from visualization_msgs.msg import Marker, MarkerArray
 from perimeter_defense_viz.markers import (base_marker, circle, color, dashed, line_list,
                                            line_strip, point, text)
 from perimeter_defense_world.geometry import load_layout
+
+
+def ascii_upper(s: str) -> str:
+    """Upper-case text without diacritics, for RViz text markers."""
+    return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode().upper()
+
 
 COLOR_KEYS = ('fence', 'breach', 'objective', 'authorized', 'grid', 'label',
               'route_lup1', 'route_lup2', 'route_lup3')
@@ -56,6 +63,12 @@ class LayoutMarkersNode(Node):
         # All-zero colour: RViz then uses the mesh material as is, without tinting it.
         bg.color = color([0.0, 0.0, 0.0, 0.0])
         markers.append(bg)
+
+        # Base name above the north fence (ASCII only, RViz fonts lack diacritics).
+        title = f'{lay.code}  {ascii_upper(lay.name)}'.strip()
+        markers.append(text('title', 0, lay.width / 2.0, lay.height + 2.6, title, c['label'], h * 1.3))
+        markers.append(text('title', 1, lay.width / 2.0, lay.height + 1.4, ascii_upper(lay.unit),
+                            c['label'], h * 0.9))
 
         # Map grid with coordinate labels along the south and west edges.
         step = float(self.get_parameter('grid_spacing').value)

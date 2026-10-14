@@ -11,7 +11,7 @@
     </lambert></technique></profile_COMMON></effect></library_effects>
   <library_materials><material id="mat"><instance_effect url="#fx"/></material></library_materials>
   <library_geometries><geometry id="quad"><mesh>
-    <source id="pos"><float_array id="pos-a" count="12">0 0 0 40.0 0 0 40.0 28.0 0 0 28.0 0</float_array>
+    <source id="pos"><float_array id="pos-a" count="12">-15.0 -12.0 0 55.0 -12.0 0 55.0 40.0 0 -15.0 40.0 0</float_array>
       <technique_common><accessor source="#pos-a" count="4" stride="3">
         <param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/>
       </accessor></technique_common></source>

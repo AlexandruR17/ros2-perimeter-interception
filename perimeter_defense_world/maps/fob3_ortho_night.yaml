@@ -1,5 +1,5 @@
 image: fob3_ortho_night.png
 # world bounds covered by the image, metres (x east, y north)
-min: [0.0, 0.0]
-max: [40.0, 28.0]
-pixels_per_metre: 60.0
+min: [-15.0, -12.0]
+max: [55.0, 40.0]
+pixels_per_metre: 30.0
