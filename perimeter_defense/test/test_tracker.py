@@ -174,3 +174,18 @@ def test_two_people_side_by_side_not_merged():
     for k in range(20):
         tr.update_detections([(0.1 * k, 0.0), (0.1 * k, 1.2)], 0.1 * k)
     assert len(tr.published()) == 2
+
+
+def test_track_appearing_on_captured_person_is_merged_into_it():
+    tr = MultiTargetTracker()
+    t = walk(tr, (0.0, 0.0), (1.0, 0.0), 0.0, 10)
+    tid = tr.published()[0].id
+    tr.neutralize(tid, t)
+    x = tr.tracks[tid].kf.position[0]
+    # Detections jump 0.8 m (missed scans while he is led away): a second
+    # track starts on him and is merged back into the captured one.
+    for k in range(1, 20):
+        tr.update_detections([(x + 0.8 + 0.05 * k, 0.0)], t + 0.1 * k)
+    assert [x.id for x in tr.published()] == [tid]
+    assert tr.tracks[tid].state == NEUTRALIZED
+    assert tr.tracks[tid].kf.position[0] > x + 0.8

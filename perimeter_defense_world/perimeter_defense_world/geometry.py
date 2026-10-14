@@ -83,6 +83,7 @@ class Detention:
     building: str
     entry: Point
     cell: Point
+    robot_stop: Point
 
 
 @dataclass
@@ -262,7 +263,8 @@ def load_layout(path: Optional[str] = None) -> BaseLayout:
         soldiers={k: Soldier(k, str(v['callsign']), tuple(_pt(p) for p in v['route']))
                   for k, v in raw.get('soldiers', {}).items()},
         detention=(Detention(str(raw['detention']['building']), _pt(raw['detention']['entry']),
-                             _pt(raw['detention']['cell'])) if 'detention' in raw else None),
+                             _pt(raw['detention']['cell']), _pt(raw['detention']['robot_stop']))
+                   if 'detention' in raw else None),
         name=str(raw.get('base', {}).get('name', '')),
         unit=str(raw.get('base', {}).get('unit', '')),
         code=str(raw.get('base', {}).get('code', '')),

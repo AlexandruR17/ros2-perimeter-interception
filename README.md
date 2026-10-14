@@ -22,7 +22,7 @@ physical security side.
 | Milestone | Content | Status |
 |---|---|---|
 | M1 | Realistic world, generated Nav2 maps, one UGV with Nav2 + AMCL patrolling waypoints | done |
-| M2 | Intruder actor, fence sensor, lidar person detector, tracker, one robot following the track; soldiers on foot (spot reports, escort to detention), IFF, status board | done |
+| M2 | Intruder actor, fence sensor, lidar person detector, tracker, IFF, one robot following the track, capture and robot escort to detention, status board; optional soldiers on foot | done |
 | M3 | Predictive interception with one robot, naive mode, RViz markers | planned |
 | M4 | Three namespaced robots, role allocation, scenario S1 | planned |
 | M5 | Own personnel in authorized zones, threat assessor, false alarm scenario S2 (soldiers, transponders and IFF already in M2) | planned |
@@ -196,13 +196,17 @@ colcon test --packages-select perimeter_defense_world && colcon test-result --ve
 python3 -m pytest perimeter_defense_world/test
 ```
 
-## M2: intruder, soldiers, detection, tracking, IFF, one robot following
+## M2: intruder, detection, tracking, IFF, capture and escort to detention
+
+The default base is fully robotic: no people on foot, every person inside
+the fence without a transponder is hostile, and the UGV that captures an
+intruder escorts him to the detention building.
 
 ```bash
-ros2 launch perimeter_defense_bringup m2_track.launch.py                 # west route, LUP-2, 3 soldiers
+ros2 launch perimeter_defense_bringup m2_track.launch.py                 # west route, LUP-2
 ros2 launch perimeter_defense_bringup m2_track.launch.py route:=east
 ros2 launch perimeter_defense_bringup m2_track.launch.py robots:=lup2,lup3
-ros2 launch perimeter_defense_bringup m2_track.launch.py soldiers:=false
+ros2 launch perimeter_defense_bringup m2_track.launch.py soldiers:=true   # with soldiers on foot
 ros2 launch perimeter_defense_bringup m2_track.launch.py headless:=true  # RViz only, lighter
 ros2 launch perimeter_defense_bringup m2_track.launch.py headless:=true quality:=low  # laptops
 ```
@@ -244,19 +248,22 @@ entrance.
 - The beam-break sensor at the breach raises `Breach NORTH: perimeter crossed`;
   the tracker creates an ALERT track at the breach (1.5 m uncertainty) and
   LUP-2 leaves its patrol to INVESTIGATE.
-- Soldiers SLD-1..3 walk their routes. A soldier who sees the intruder (12 m,
-  line of sight, inside the fence) stops and radios a spot report (position
-  error about 1.5 m, 1 s radio delay, repeated every 4 s); the reports move the
-  ALERT track, so the robot is sent where the intruder was last seen. Soldiers
-  cannot stop the intruder.
-- The soldiers carry transponders; the IFF recognises their lidar tracks as
-  FRIEND and robots ignore them. A lidar track tracked for 2 s without a
-  transponder is HOSTILE; it confirms the ALERT track (which keeps its id),
-  the intruder starts running and the robot switches to FOLLOW.
-- A robot within 1 m captures the intruder and HOLDs there. The closest free
-  soldier comes, takes him over (custody report ESCORTING), the robot goes back
-  to patrol, the soldier escorts him to the detention building (east of the
-  vehicle park) and reports him DETAINED, then returns to his route.
+- A lidar track tracked for 2 s without a transponder is HOSTILE; it confirms
+  the ALERT track (which keeps its id), the intruder starts running and the
+  robot switches to FOLLOW.
+- A robot within 1 m captures the intruder (CAPTURED) and HOLDs him for 2 s,
+  then ESCORTs him at walking pace (0.6 m/s) to the detention building east of
+  the vehicle park, waiting whenever he falls more than 3 m behind. It stops
+  next to the door, the intruder walks into the cell; when the lidar no longer
+  sees him the robot reports him DETAINED (/perimeter/custody) and goes back to
+  patrol.
+- With `soldiers:=true` three soldiers walk their routes. A soldier who sees
+  the intruder (12 m, line of sight, inside the fence) stops and radios a spot
+  report (position error about 1.5 m, 1 s radio delay, repeated every 4 s); the
+  reports move the ALERT track, so the robot is sent where the intruder was
+  last seen. Soldiers carry transponders (the IFF makes their tracks FRIEND)
+  and cannot stop the intruder; the closest free soldier takes a captured
+  intruder over from the robot and escorts him instead.
 
 In follow mode with one robot the intruder often reaches the depot first (he
 is then captured there); predictive interception comes in M3, the guard role
@@ -362,6 +369,13 @@ LOST after 1.5 s without a detection and keep predicting with a decaying
 velocity. In the west-route run the track error against ground truth was
 0.1-0.45 m while the intruder was walking and running.
 
+**Localization consistency.** A robot whose localization is wrong (wheels
+slipping against a corner, AMCL lost) sees the walls where the map has none,
+and every wall segment would look like a person. Each scan is checked first:
+inside the base at least 60 % of the returns within 15 m must be explained by
+the static map (measured 82-100 % with good localization), otherwise the scan
+is ignored with a warning.
+
 **Soldiers and spot reports.** A spot report is a coarse measurement (about
 2 m) like the fence alert: it updates an ALERT or LOST track or creates an
 ALERT track, but it never moves a lidar track (the lidar is ten times more
@@ -389,7 +403,8 @@ soldiers on an escort duty are exempt. Robots are only sent to ALERT tracks and
 HOSTILE tracks.
 
 **Detention.** Captured tracks keep following the detections of the person
-(escorted away), without changing state, so the escort does not create new
+(escorted away), without changing state, and a track that appears within 1 m
+of a captured person is merged into it, so the escort does not create new
 tracks. Inside the detention building the person is hidden from the lidars;
 the track is deleted and the board keeps the entry as DETAINED.
 

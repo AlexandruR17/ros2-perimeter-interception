@@ -21,6 +21,9 @@ person_detector:
     static_margin_per_m: 0.035  # ... plus this per metre of range (AMCL heading error)
     robot_exclusion: 1.0      # m, returns around own robots (body + localization error)
     centroid_offset: 0.1      # m, lidar sees the near surface of the body
+    consistency_range: 15.0   # m, returns used for the localization consistency check
+    min_map_consistency: 0.6  # fraction the static map must explain, else the scan is ignored
+    min_consistency_points: 40
 
 tracker:
   ros__parameters:
@@ -41,6 +44,7 @@ tracker:
     max_assoc_distance: 3.0   # m, detection to track, on top of the chi-square gate
     alert_merge_radius: 8.0   # m, a hostile lidar track this close confirms an ALERT track
     duplicate_distance: 0.7   # m, two confirmed tracks this close are merged (same person)
+    captured_merge_distance: 1.0  # m, a track this close to a captured person is him
     prediction_horizon: 6.0   # s
     prediction_step: 0.2      # s
     obstacle_margin: 0.2      # m, prediction stops at obstacles
@@ -55,6 +59,11 @@ interceptor_allocator:
     standoff: 0.5             # m, goal short of the target (it is an obstacle)
     max_speed: 2.0            # m/s
     hold_timeout: 120.0       # s a robot stays with a captured person at most
+    escort_by: robot          # robot (fully robotic base) or soldier
+    hold_time: 2.0            # s securing the captured person before the escort
+    escort_speed: 0.6         # m/s, walking pace of the detainee
+    escort_wait_distance: 3.0 # m, the robot waits when the detainee falls behind
+    handover_timeout: 20.0    # s at the detention door at most
 
 iff:
   ros__parameters:

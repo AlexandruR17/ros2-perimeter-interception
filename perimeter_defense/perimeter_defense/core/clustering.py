@@ -31,6 +31,9 @@ class DetectorParams:
     static_margin_per_m: float = 0.035  # ... plus this much per metre of range (heading error)
     robot_exclusion: float = 1.0        # returns this close to an own robot are that robot
     centroid_offset: float = 0.1        # lidar sees the near surface, shift to body centre
+    consistency_range: float = 15.0     # returns used for the localization consistency check
+    min_map_consistency: float = 0.6    # fraction of them the static map must explain
+    min_consistency_points: int = 40    # fewer returns: the check is not meaningful
 
 
 def scan_to_points(ranges: Sequence[float], angle_min: float, angle_increment: float,
@@ -106,6 +109,27 @@ def detect_people(points_map: np.ndarray, sensor_xy: XY, params: DetectorParams,
             cy += (cy - sy) / rng * params.centroid_offset
         out.append(Cluster(points=cl, centroid=(cx, cy), width=width, range=rng))
     return out
+
+
+def map_consistency(points_map: np.ndarray, sensor_xy: XY, params: DetectorParams,
+                    is_static: Callable[[np.ndarray, np.ndarray], np.ndarray]) -> Optional[float]:
+    """Fraction of the returns within consistency_range explained by the static map.
+
+    Inside the base most returns hit buildings and props. When the robot's
+    localization is wrong (wheels slipping against an obstacle, AMCL lost)
+    the walls no longer line up with the map and every wall segment would
+    look like a person; a low value means the scan must not be used.
+    None when there are too few returns to tell.
+    """
+    if len(points_map) == 0:
+        return None
+    sx, sy = sensor_xy
+    dist = np.hypot(points_map[:, 0] - sx, points_map[:, 1] - sy)
+    near = dist <= params.consistency_range
+    if int(np.count_nonzero(near)) < params.min_consistency_points:
+        return None
+    margins = params.static_margin + params.static_margin_per_m * dist[near]
+    return float(np.mean(is_static(points_map[near], margins)))
 
 
 def fuse_detections(dets: Sequence[Tuple[XY, float, str]], radius: float

@@ -14,6 +14,7 @@ def _launch(context, *args, **kwargs):
                           'perimeter_defense.yaml')
     robots = [r for r in LaunchConfiguration('robots').perform(context).split(',') if r]
     mode = LaunchConfiguration('mode').perform(context)
+    escort_by = LaunchConfiguration('escort_by').perform(context)
     common = {'use_sim_time': True}
     node = lambda exe, extra=None: Node(   # noqa: E731
         package='perimeter_defense', executable=exe, name=exe,
@@ -23,7 +24,7 @@ def _launch(context, *args, **kwargs):
         node('person_detector', {'robots': robots}),
         node('tracker'),
         node('iff'),
-        node('interceptor_allocator', {'robots': robots, 'mode': mode}),
+        node('interceptor_allocator', {'robots': robots, 'mode': mode, 'escort_by': escort_by}),
     ]
 
 
@@ -31,5 +32,6 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robots', default_value='lup1', description='comma separated'),
         DeclareLaunchArgument('mode', default_value='follow'),
+        DeclareLaunchArgument('escort_by', default_value='robot', description='robot or soldier'),
         OpaqueFunction(function=_launch),
     ])

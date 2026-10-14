@@ -3,7 +3,8 @@
 For each robot scan: transform the returns to the map frame with the robot's
 own localization (TF), drop returns explained by the static map, returns of
 own robots and returns beyond the detection radius, cluster the rest and keep
-person-sized clusters. Detections from all robots are fused in the map frame
+person-sized clusters. A scan whose returns do not line up with the static
+map (the robot's localization is wrong) is not used. Detections from all robots are fused in the map frame
 and published at a fixed rate.
 """
 
@@ -18,7 +19,7 @@ from sensor_msgs.msg import LaserScan
 from tf2_ros import Buffer, TransformListener
 
 from perimeter_defense.core.clustering import (DetectorParams, detect_people, fuse_detections,
-                                               scan_to_points, transform_points)
+                                               map_consistency, scan_to_points, transform_points)
 from perimeter_defense.core.static_map import StaticMap
 from perimeter_defense.ros_utils import lookup_pose2d, spin_node, to_sec
 from perimeter_defense_msgs.msg import Detection, DetectionArray
@@ -86,6 +87,13 @@ class PersonDetectorNode(Node):
         pts, _ = scan_to_points(msg.ranges, msg.angle_min, msg.angle_increment,
                                 max(msg.range_min, self.params.min_range), msg.range_max)
         pts_map = transform_points(pts, *sensor)
+        consistency = map_consistency(pts_map, (sensor[0], sensor[1]), self.params,
+                                      self.static_map.is_static)
+        if consistency is not None and consistency < self.params.min_map_consistency:
+            self.get_logger().warn(f'{robot}: scan does not match the map ({consistency:.0%}), '
+                                   'localization lost? scan ignored', throttle_duration_sec=2.0)
+            self.latest.pop(robot, None)
+            return
         clusters = detect_people(pts_map, (sensor[0], sensor[1]), self.params,
                                  self.static_map.is_static,
                                  self.robot_positions(robot))

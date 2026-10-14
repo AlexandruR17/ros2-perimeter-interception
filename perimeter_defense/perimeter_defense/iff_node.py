@@ -66,10 +66,10 @@ class IffNode(Node):
     def on_custody(self, msg: Custody) -> None:
         # A soldier on an escort duty, and on his way back, may leave his zone.
         if msg.state in (Custody.DISPATCHED, Custody.ESCORTING):
-            self.on_duty_until[msg.soldier] = math.inf
-        elif self.on_duty_until.get(msg.soldier, math.inf) == math.inf:
+            self.on_duty_until[msg.escort] = math.inf
+        elif self.on_duty_until.get(msg.escort, math.inf) == math.inf:
             # First DETAINED report (they are repeated): give him time to walk back.
-            self.on_duty_until[msg.soldier] = self.now_s() + self.return_time
+            self.on_duty_until[msg.escort] = self.now_s() + self.return_time
 
     def tick(self) -> None:
         now = self.now_s()

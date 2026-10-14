@@ -6,7 +6,8 @@ uint8 INVESTIGATE = 4
 uint8 SEARCH = 5
 uint8 BLOCK = 6
 uint8 FOLLOW = 7
-uint8 HOLD = 8           # stays with a captured person until a soldier takes over
+uint8 HOLD = 8           # stays with a captured person (securing him)
+uint8 ESCORT = 9         # leads a captured person to the detention building
 
 std_msgs/Header header
 string robot

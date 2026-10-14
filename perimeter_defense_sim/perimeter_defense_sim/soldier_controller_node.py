@@ -155,7 +155,7 @@ class SoldierControllerNode(Node):
             self.get_logger().warn(f'{s.callsign}: on the way to captured T{t.id}')
 
     def report_custody(self, s: SoldierState, state: int) -> None:
-        c = Custody(track_id=s.track_id, soldier=s.callsign, state=state)
+        c = Custody(track_id=s.track_id, escort=s.callsign, state=state)
         c.header.stamp, c.header.frame_id = self.get_clock().now().to_msg(), 'map'
         if s.pose:
             c.position.x, c.position.y = s.pose

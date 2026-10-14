@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 
-from perimeter_defense.core.clustering import (DetectorParams, cluster_ordered, detect_people,
+from perimeter_defense.core.clustering import (DetectorParams, cluster_ordered, detect_people, map_consistency,
                                                fuse_detections, scan_to_points,
                                                transform_points)
 
@@ -73,3 +73,16 @@ def test_static_margin_grows_with_range():
     wall_dist = lambda p, m: 0.45 < m   # noqa: E731  every point 0.45 m from a wall
     assert len(detect_people(near, (0.0, 0.0), params, wall_dist)) == 1
     assert detect_people(far, (0.0, 0.0), params, wall_dist) == []
+
+
+def test_map_consistency_detects_lost_localization():
+    # Static map: a wall along x = 5.
+    is_static = lambda pts, margins: np.abs(pts[:, 0] - 5.0) <= margins   # noqa: E731
+    wall = np.array([[5.0, y] for y in np.linspace(-4.0, 4.0, 60)])
+    params = DetectorParams()
+    assert map_consistency(wall, (0.0, 0.0), params, is_static) == 1.0
+    # Same scan with a 0.4 rad heading error: the wall no longer lines up.
+    c, s = np.cos(0.4), np.sin(0.4)
+    rotated = wall @ np.array([[c, -s], [s, c]]).T
+    assert map_consistency(rotated, (0.0, 0.0), params, is_static) < params.min_map_consistency
+    assert map_consistency(wall[:10], (0.0, 0.0), params, is_static) is None

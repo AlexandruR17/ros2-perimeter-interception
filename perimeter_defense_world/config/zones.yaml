@@ -79,16 +79,20 @@ authorized_zones:
   - name: detention_area
     polygon: [[29.5, 5.8], [36.5, 5.8], [36.5, 13.4], [29.5, 13.4]]
 
-# Captured intruders are escorted by a soldier to the detention building:
-# the soldier stops at the entry, the detainee walks into the cell.
+# Captured intruders are escorted to the detention building by the UGV that
+# captured them (or by a soldier in the scenario with soldiers). The UGV stops
+# at robot_stop, east of the door; the detainee walks through the entry into
+# the cell.
 detention:
   building: detention
   entry: [33.9, 12.1]
   cell: [33.9, 8.9]
+  robot_stop: [35.3, 12.7]
 
-# Own soldiers on foot. They walk their route in a loop, carry a transponder,
-# report intruders they see by radio and escort captured intruders to the
-# detention building. They cannot stop an intruder themselves.
+# Own soldiers on foot, only in the scenario with soldiers (soldiers:=true;
+# the default base is fully robotic). They walk their route in a loop, carry
+# a transponder, report intruders they see by radio and escort captured
+# intruders to the detention building. They cannot stop an intruder.
 soldiers:
   soldier1: {callsign: "SLD-1", route: [[4.0, 4.2], [12.0, 4.2], [12.0, 13.8], [4.0, 13.8]]}
   soldier2: {callsign: "SLD-2", route: [[15.0, 15.2], [25.0, 15.2], [25.0, 24.5], [15.0, 24.5]]}

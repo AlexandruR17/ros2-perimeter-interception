@@ -1,10 +1,13 @@
 """M2: one intruder through the north breach, fence sensor, lidar detector,
 Kalman tracker, IFF, and the UGVs (LUP-2 by default, east sector) leaving
-their patrol to investigate the alert and follow the track.
+their patrol to investigate the alert and follow the track. The base is
+fully robotic: the UGV that captures the intruder escorts him to the
+detention building.
 
-With soldiers:=true (default) three soldiers walk around the base: they
-carry transponders (recognised as FRIEND), radio spot reports when they see
-the intruder, and escort a captured intruder to the detention building.
+With soldiers:=true three soldiers walk around the base: they carry
+transponders (recognised as FRIEND), radio spot reports when they see the
+intruder, and escort a captured intruder to the detention building instead
+of the UGV.
 """
 
 import os
@@ -46,14 +49,15 @@ def _launch(context, *args, **kwargs):
             include('intruder.launch.py', {'name': 'intruder1', 'spawn': 'north_breach',
                                            'route': g('route'), 'start_delay': g('start_delay')}),
         ]),
-        include('defense.launch.py', {'robots': ','.join(robots), 'mode': 'follow'}),
+        include('defense.launch.py', {'robots': ','.join(robots), 'mode': 'follow',
+                                      'escort_by': 'soldier' if soldiers else 'robot'}),
         Node(package='perimeter_defense_viz', executable='layout_markers', name='layout_markers',
              parameters=[viz_params, {'aerial_variant': g('world_variant')}]),
         Node(package='perimeter_defense_viz', executable='fleet_markers', name='fleet_markers',
              parameters=[viz_params, {'use_sim_time': True, 'robots': robots,
                                       'callsigns': [r.replace('lup', 'LUP-') for r in robots]}]),
         Node(package='perimeter_defense_viz', executable='status_board', name='status_board',
-             parameters=[viz_params, {'use_sim_time': True}]),
+             parameters=[viz_params, {'use_sim_time': True, 'soldiers': ','.join(callsigns)}]),
         # Exercise truth overlay (where the actors really are), for the operator only.
         Node(package='perimeter_defense_sim', executable='truth_markers', name='truth_markers',
              parameters=[{'use_sim_time': True, 'actors': ['intruder1'],
@@ -79,8 +83,9 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('route', default_value='west', description='west or east'),
         DeclareLaunchArgument('robots', default_value='lup2',
                               description='comma separated, e.g. lup1,lup2,lup3'),
-        DeclareLaunchArgument('soldiers', default_value='true',
-                              description='own soldiers on foot (spot reports, escort)'),
+        DeclareLaunchArgument('soldiers', default_value='false',
+                              description='own soldiers on foot (spot reports, escort); '
+                                          'default: fully robotic base'),
         DeclareLaunchArgument('start_delay', default_value='15.0',
                               description='s before the intruder starts walking'),
         OpaqueFunction(function=_launch),

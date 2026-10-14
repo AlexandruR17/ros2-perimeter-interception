@@ -62,6 +62,7 @@ class TrackerParams:
     max_assoc_distance: float = 3.0   # m, detection to track, on top of the chi-square gate
     alert_merge_radius: float = 8.0   # m, hostile lidar track that confirms an ALERT track
     duplicate_distance: float = 0.7   # m, two confirmed tracks this close follow one person
+    captured_merge_distance: float = 1.0  # m, a track this close to a captured person is him
 
 
 @dataclass
@@ -161,19 +162,31 @@ class MultiTargetTracker:
         return result
 
     def _merge_duplicates(self) -> None:
-        """A LOST track predicted past a person who turned back can be re-created
-        as a second track; when two lidar tracks sit on the same person, keep the
-        one with the freshest detection (then the older one)."""
-        live = [tr for tr in self.tracks.values() if tr.state in (TRACKED, LOST)]
+        """Two confirmed tracks on one person are merged.
+
+        A LOST track predicted past a person who turned back can be re-created
+        as a second track; the one with the freshest detection is kept (then
+        the older one). A track that appears on a captured person (missed
+        detections while he is escorted) is merged into the captured track,
+        which keeps its identity and state.
+        """
+        live = [tr for tr in self.tracks.values() if tr.state in (TRACKED, LOST, NEUTRALIZED)]
         for i, a in enumerate(live):
             for b in live[i + 1:]:
                 if a.id not in self.tracks or b.id not in self.tracks:
                     continue
-                if math.dist(a.kf.position, b.kf.position) > self.p.duplicate_distance:
+                captured = NEUTRALIZED in (a.state, b.state)
+                limit = self.p.captured_merge_distance if captured else self.p.duplicate_distance
+                if math.dist(a.kf.position, b.kf.position) > limit or a.state == b.state == NEUTRALIZED:
                     continue
-                keep, drop = sorted((a, b), key=lambda tr: (-tr.last_update, tr.id))
-                if drop.classification == FRIEND and keep.classification != FRIEND:
-                    keep.classification, keep.transponder_id = FRIEND, drop.transponder_id
+                if captured:
+                    keep, drop = (a, b) if a.state == NEUTRALIZED else (b, a)
+                    if drop.last_update > keep.last_update:
+                        keep.kf, keep.last_update = drop.kf, drop.last_update
+                else:
+                    keep, drop = sorted((a, b), key=lambda tr: (-tr.last_update, tr.id))
+                    if drop.classification == FRIEND and keep.classification != FRIEND:
+                        keep.classification, keep.transponder_id = FRIEND, drop.transponder_id
                 del self.tracks[drop.id]
 
     def _cost(self, tr: Track, z: XY) -> float:

@@ -4,7 +4,7 @@ Every person the defense registers inside the perimeter (fence breach alert,
 soldier spot report, or hostile lidar track inside the fence) gets an entry that
 stays on the board for the whole exercise, from the first report to
 detention. Only defense information is used: tracks, alerts, robot roles
-and the soldiers' custody reports.
+and the custody reports.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ UNKNOWN, FRIEND, HOSTILE = 0, 1, 2
 DISPATCHED, ESCORTING, DETAINED = 0, 1, 2
 
 ROLE_NAMES = {0: 'PATROL', 1: 'INTERCEPT', 2: 'GUARD', 3: 'FLANK', 4: 'INVESTIGATE',
-              5: 'SEARCH', 6: 'BLOCK', 7: 'FOLLOW', 8: 'HOLD'}
+              5: 'SEARCH', 6: 'BLOCK', 7: 'FOLLOW', 8: 'HOLD', 9: 'ESCORT'}
 CLASS_NAMES = {UNKNOWN: 'UNKNOWN', FRIEND: 'FRIEND', HOSTILE: 'HOSTILE'}
 
 
@@ -52,7 +52,7 @@ class Entry:
     position: XY = (0.0, 0.0)
     speed: float = 0.0
     live: bool = True
-    custody: Optional[Tuple[str, int]] = None   # (soldier, custody state)
+    custody: Optional[Tuple[str, int]] = None   # (escort call sign, custody state)
     robot: str = ''                              # 'LUP-2 FOLLOW'
     last_seen: float = 0.0
     previous: List[int] = field(default_factory=list)   # earlier track ids of this person
@@ -77,9 +77,9 @@ class Entry:
     def custody_text(self) -> str:
         if not self.custody:
             return '-'
-        soldier, state = self.custody
-        return {DISPATCHED: f'{soldier} EN ROUTE', ESCORTING: f'{soldier} ESCORT',
-                DETAINED: f'BY {soldier}'}[state]
+        escort, state = self.custody
+        return {DISPATCHED: f'{escort} EN ROUTE', ESCORTING: f'{escort} ESCORT',
+                DETAINED: f'BY {escort}'}[state]
 
     @property
     def active(self) -> bool:
@@ -110,7 +110,7 @@ class ContactRegister:
 
     def update(self, tracks: Sequence[TrackInfo], roles: Dict[str, Tuple[int, int]],
                custody: Dict[int, Tuple[str, int]], now: float) -> None:
-        """roles: robot call sign -> (role, track id); custody: track id -> (soldier, state)."""
+        """roles: robot call sign -> (role, track id); custody: track id -> (escort, state)."""
         live = set()
         for t in tracks:
             e = self.entries.get(t.id)

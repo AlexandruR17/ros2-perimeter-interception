@@ -5,9 +5,12 @@ west or east route to the ammunition depot entrance, following an A* path on
 the base map. It switches to running once the defense has a track on it
 (within detect_radius of its true position), stops when a robot gets within
 capture_distance (surrender) or when it reaches the target. A captured
-intruder waits; when a soldier takes him over (/sim/actors/<name>/escort
-carries the soldier's actor name) he walks behind the soldier, and on the
-command "cell" he walks into the detention cell and stays there (detained).
+intruder waits. When the UGV that captured him reports the escort
+(/perimeter/custody, ESCORTING by LUP-n within 2.5 m of him) he walks behind
+it and, once it stops next to the detention door, walks into the cell and
+stays there (detained). In the scenario with soldiers the soldier who takes
+him over sends his actor name on /sim/actors/<name>/escort and "cell" at the
+door.
 
 Uses the actor's true pose (/sim/actors/<name>/pose) and the robots' true
 poses (/sim/ground_truth/<robot>/pose): this is the scenario script, not part
@@ -25,7 +28,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from perimeter_defense_msgs.msg import Track, TrackArray
+from perimeter_defense_msgs.msg import Custody, Track, TrackArray
 from perimeter_defense_sim.path_planning import GridPlanner, plan_route
 from perimeter_defense_world.geometry import load_layout
 
@@ -48,7 +51,7 @@ class IntruderControllerNode(Node):
         self.declare_parameter('target_radius', 0.9)
         self.declare_parameter('robots', ['lup1', 'lup2', 'lup3'])
         self.declare_parameter('lookahead', 0.6)
-        self.declare_parameter('follow_distance', 1.2)    # m behind the escorting soldier
+        self.declare_parameter('follow_distance', 1.2)    # m behind the escort
 
         g = lambda n: self.get_parameter(n).value   # noqa: E731
         self.actor: str = g('actor')
@@ -66,6 +69,8 @@ class IntruderControllerNode(Node):
         self.cell: Optional[XY] = layout.detention.cell if layout.detention else None
         self.escort: str = ''
         self.escort_pose: Optional[XY] = None
+        self.escort_robot: str = ''
+        self.robot_stop: Optional[XY] = layout.detention.robot_stop if layout.detention else None
 
         spawn = layout.intruder_spawns[g('spawn')]
         waypoints = [spawn] + self.route_waypoints(layout, g('spawn'), g('route')) + [self.target]
@@ -86,6 +91,7 @@ class IntruderControllerNode(Node):
                                      lambda m, r=robot: self.on_robot_pose(r, m), 10)
         self.create_subscription(TrackArray, '/threats/tracks', self.on_tracks, 10)
         self.create_subscription(String, f'/sim/actors/{self.actor}/escort', self.on_escort, 10)
+        self.create_subscription(Custody, '/perimeter/custody', self.on_custody, 10)
         self.create_timer(0.05, self.tick)
         length = sum(math.dist(a, b) for a, b in zip(self.path, self.path[1:]))
         self.get_logger().info(f'{self.actor}: route {g("route")} via {g("spawn")}, {length:.1f} m')
@@ -132,6 +138,16 @@ class IntruderControllerNode(Node):
             self.create_subscription(Pose, f'/sim/actors/{msg.data}/pose', self.on_escort_pose, 10)
             self.set_state('escorted')
 
+    def on_custody(self, msg: Custody) -> None:
+        """Escort by a UGV: LUP-2 -> lup2, the robot must be next to him."""
+        if self.state != 'captured' or msg.state != Custody.ESCORTING or self.pose is None:
+            return
+        robot = msg.escort.replace('-', '').lower()
+        p = self.robot_poses.get(robot)
+        if p is not None and math.dist(p, self.pose) <= 2.5:
+            self.escort_robot = robot
+            self.set_state('escorted')
+
     def on_escort_pose(self, msg: Pose) -> None:
         self.escort_pose = (msg.position.x, msg.position.y)
 
@@ -162,6 +178,12 @@ class IntruderControllerNode(Node):
                     f'starts in {left:.1f} s of simulation time')
             return
         if self.state == 'escorted':
+            if self.escort_robot:
+                self.escort_pose = self.robot_poses.get(self.escort_robot)
+                if (self.cell is not None and self.escort_pose is not None
+                        and math.dist(self.escort_pose, self.robot_stop) < 1.0):
+                    self.set_state('to_cell')
+                    return
             self.follow_escort()
             self.set_state(self.state)
             return

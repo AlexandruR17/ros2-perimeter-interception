@@ -4,8 +4,9 @@ Top: every contact registered inside the perimeter, one card each: id,
 class, status (ALERT / TRACKED / LOST / CAPTURED / ESCORTED / DETAINED /
 NO CONTACT), how it was first reported (breach sensor, soldier spot report
 or lidar), time since registration, speed, distance to the objective, the
-robot working on it and the soldier who has it in custody.
-Bottom: own forces, the robots' roles and the soldiers' status.
+robot working on it and the escort who has it in custody.
+Bottom: own forces, the robots' roles (and the soldiers' status in the
+scenario with soldiers).
 
 Defense information only: tracks, alerts, robot roles, custody reports and
 transponders; no simulator ground truth.
@@ -50,12 +51,13 @@ class StatusBoardNode(Node):
         self.declare_parameter('max_contacts', 6)
         self.declare_parameter('rate', 2.0)
         self.declare_parameter('transponder_timeout', 3.0)
+        self.declare_parameter('soldiers', '')              # comma separated call signs, '' = none
 
         g = lambda n: self.get_parameter(n).value   # noqa: E731
         layout = load_layout(g('zones_file') or None)
         self.register = ContactRegister(layout.is_inside_fence, layout.objective_target)
         self.callsign = dict(zip(g('robots'), g('callsigns')))
-        self.soldiers = [s.callsign for s in layout.soldiers.values()]
+        self.soldiers = [s for s in str(g('soldiers')).split(',') if s]
         self.x0, self.y0 = (float(v) for v in g('origin'))
         self.w = float(g('width'))
         self.th = float(g('text_height'))
@@ -101,8 +103,8 @@ class StatusBoardNode(Node):
         self.roles[self.callsign.get(msg.robot, msg.robot.upper())] = (int(msg.role), int(msg.track_id))
 
     def on_custody(self, msg: Custody) -> None:
-        self.custody[int(msg.track_id)] = (msg.soldier, int(msg.state))
-        self.soldier_task[msg.soldier] = (int(msg.track_id), int(msg.state))
+        self.custody[int(msg.track_id)] = (msg.escort, int(msg.state))
+        self.soldier_task[msg.escort] = (int(msg.track_id), int(msg.state))
 
     def on_tx(self, msg: Transponder) -> None:
         self.last_tx[msg.id] = self.now_s()
@@ -195,7 +197,9 @@ class StatusBoardNode(Node):
 
     @staticmethod
     def role_color(role: int) -> List[float]:
-        return DIM if role == 0 else ([0.45, 0.95, 0.45, 1.0] if role == 8 else [1.0, 0.62, 0.15, 1.0])
+        if role == 0:
+            return DIM
+        return {8: [0.45, 0.95, 0.45, 1.0], 9: STATUS_COLORS['ESCORTED']}.get(role, [1.0, 0.62, 0.15, 1.0])
 
     def row(self, out: List[Marker], cols: Sequence[float], y: float,
             cells: Sequence[Tuple[str, List[float]]], scale: float = 1.0) -> None:
