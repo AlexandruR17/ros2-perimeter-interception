@@ -65,7 +65,7 @@ class LayoutMarkersNode(Node):
         markers.append(bg)
 
         # Base name above the north fence (ASCII only, RViz fonts lack diacritics).
-        title = f'{lay.code}  {ascii_upper(lay.name)}'.strip()
+        title = ascii_upper(lay.name)
         markers.append(text('title', 0, lay.width / 2.0, lay.height + 2.6, title, c['label'], h * 1.3))
         markers.append(text('title', 1, lay.width / 2.0, lay.height + 1.4, ascii_upper(lay.unit),
                             c['label'], h * 0.9))

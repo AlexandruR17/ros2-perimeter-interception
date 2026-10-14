@@ -12,10 +12,10 @@ The project extends the topic of the author's dissertation (an information
 system for the analysis, control and processing of security incidents) to the
 physical security side.
 
-> Exercise only. All data is simulated. The base, "Baza 73 Sprijin
-> \"Căpitan Ion Vulturescu\"" (code name FOB-3, Centrul de Comandă Sector
-> Nord), the officer it is named after and its location are fictional and do
-> not correspond to any real military site.
+> Exercise only. All data is simulated. The base, Baza Militară "Căpitan Ion
+> Vulturescu" (code name FOB-3, Centrul de Comandă Sector Nord), the officer it
+> is named after and its location are fictional and do not correspond to any
+> real military site.
 
 ## Status
 
