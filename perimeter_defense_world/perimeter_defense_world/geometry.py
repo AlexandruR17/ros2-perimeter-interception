@@ -87,6 +87,7 @@ class BaseLayout:
     authorized_zones: Dict[str, List[Point]]
     patrol_routes: Dict[str, List[Point]]
     intruder_spawns: Dict[str, Point]
+    helipad: Optional[Tuple[Point, float]] = None
     raw: dict = field(default_factory=dict, repr=False)
 
     def obstacles(self) -> List[Rect]:
@@ -157,6 +158,11 @@ def _rect(d: dict, kind_key: str) -> Rect:
     )
 
 
+def _helipad(raw: dict) -> Optional[Tuple[Point, float]]:
+    pad = raw.get('markings', {}).get('helipad')
+    return (_pt(pad['center']), float(pad['radius'])) if pad else None
+
+
 def package_dir() -> str:
     """Share directory of the installed package, or the source tree outside ROS."""
     try:
@@ -198,6 +204,7 @@ def load_layout(path: Optional[str] = None) -> BaseLayout:
                           for z in raw.get('authorized_zones', [])},
         patrol_routes={k: [_pt(p) for p in v] for k, v in raw['patrol_routes'].items()},
         intruder_spawns={k: _pt(v) for k, v in raw.get('intruder_spawns', {}).items()},
+        helipad=_helipad(raw),
         raw=raw,
     )
 

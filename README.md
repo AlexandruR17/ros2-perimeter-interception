@@ -88,6 +88,7 @@ evaluation package for metrics.
 | `perimeter_defense_description` | LUP UGV description (Jackal-sized skid-steer, gpu_lidar, camera) | common base |
 | `perimeter_defense_bringup` | Launch files, Nav2 and fleet configuration, RViz | common base |
 | `perimeter_defense_sim` | Odometry drift, baseline patrol; later actors, transponders, manual intruder | common base |
+| `perimeter_defense_viz` | Tactical RViz overlay: aerial background, grid, fence and breaches, objective, zones, routes, fleet symbols | common base |
 | `perimeter_defense_msgs` | Track, TrackArray, ThreatLevel, Alert, RoleAssignment, Transponder | M2+ |
 | `perimeter_defense` | Detection, IFF, tracking and prediction, interceptor allocation | **individual contribution**, M2+ |
 | `perimeter_defense_eval` | Headless batch runs, CSV, plots | M7 |
@@ -105,6 +106,8 @@ evaluation package for metrics.
 | `amcl` | /lupN | `scan`, `/map_localization` | `amcl_pose`, `/tf` (`map` -> `lupN/odom`) |
 | Nav2 (controller, planner, behaviors, bt_navigator) | /lupN | `scan`, `odom`, `/map`, `speed_limit` | `cmd_vel`, `plan` |
 | `patrol` | /lupN | `patrol_enable` | `navigate_to_pose` goals, `speed_limit` |
+| `layout_markers` | / | | `/perimeter/layout_markers` (latched) |
+| `fleet_markers` | / | `/tf` | `/fleet/markers` |
 
 ## Environment
 
@@ -144,7 +147,9 @@ ros2 launch perimeter_defense_bringup m1_patrol.launch.py start_patrol:=false   
 
 What to check:
 - Gazebo: the robot drives the loop (3.5,24.5) -> (14,24.5) -> (13.5,15) -> (3.5,15).
-- RViz: the laser scan lines up with the map while driving, the plan is shown.
+- RViz (tactical view): aerial background, grid, breaches, objective; LUP-1 is shown
+  as a blue friendly UGV symbol with call sign, heading and its 10 m detection ring;
+  the laser scan (cyan) lines up with the building edges.
 - `ros2 topic hz /lup1/scan` gives about 10 Hz.
 - Real-time factor in the Gazebo GUI (bottom right) stays close to 1.0.
 
@@ -210,6 +215,11 @@ in this open base with a see-through fence it locked onto wrong modes (up to
 three patrol laps the AMCL error against ground truth was 0.27 m on average
 and 0.57 m at most (measured with a diagnostic script, ground truth is not
 used by any node).
+
+**Tactical view.** The robot keeps its real Jackal size in the simulation;
+RViz shows it with an enlarged friendly unit symbol (3 x 2 m), as a C2 map
+would. The RViz background is the top-down render of the Gazebo world on a
+textured plane, so the map in RViz looks like the simulated base.
 
 **Performance.** With one robot, the camera off and software rendering on a
 4-core machine without GPU, the real-time factor is 0.99.

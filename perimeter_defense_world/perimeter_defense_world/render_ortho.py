@@ -23,6 +23,7 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image as PilImage
+from PIL import ImageEnhance
 
 from perimeter_defense_world.geometry import BaseLayout, load_layout, package_dir
 
@@ -52,6 +53,62 @@ def camera_model(layout: BaseLayout) -> str:
         </sensor>
       </link>
     </model>"""
+
+
+PLANE_DAE = """<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+  <asset><unit name="meter" meter="1"/><up_axis>Z_UP</up_axis></asset>
+  <library_images><image id="img"><init_from>{image}</init_from></image></library_images>
+  <library_effects><effect id="fx"><profile_COMMON>
+    <newparam sid="surf"><surface type="2D"><init_from>img</init_from></surface></newparam>
+    <newparam sid="samp"><sampler2D><source>surf</source></sampler2D></newparam>
+    <technique sid="common"><lambert>
+      <emission><color>0 0 0 1</color></emission>
+      <diffuse><texture texture="samp" texcoord="uv"/></diffuse>
+    </lambert></technique></profile_COMMON></effect></library_effects>
+  <library_materials><material id="mat"><instance_effect url="#fx"/></material></library_materials>
+  <library_geometries><geometry id="quad"><mesh>
+    <source id="pos"><float_array id="pos-a" count="12">0 0 0 {w} 0 0 {w} {h} 0 0 {h} 0</float_array>
+      <technique_common><accessor source="#pos-a" count="4" stride="3">
+        <param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/>
+      </accessor></technique_common></source>
+    <source id="tex"><float_array id="tex-a" count="8">0 0 1 0 1 1 0 1</float_array>
+      <technique_common><accessor source="#tex-a" count="4" stride="2">
+        <param name="S" type="float"/><param name="T" type="float"/>
+      </accessor></technique_common></source>
+    <vertices id="verts"><input semantic="POSITION" source="#pos"/></vertices>
+    <triangles material="m" count="2">
+      <input semantic="VERTEX" source="#verts" offset="0"/>
+      <input semantic="TEXCOORD" source="#tex" offset="0" set="0"/>
+      <p>0 1 2 0 2 3</p>
+    </triangles>
+  </mesh></geometry></library_geometries>
+  <library_visual_scenes><visual_scene id="scene"><node id="plane">
+    <instance_geometry url="#quad"><bind_material><technique_common>
+      <instance_material symbol="m" target="#mat">
+        <bind_vertex_input semantic="uv" input_semantic="TEXCOORD" input_set="0"/>
+      </instance_material></technique_common></bind_material></instance_geometry>
+  </node></visual_scene></library_visual_scenes>
+  <scene><instance_visual_scene url="#scene"/></scene>
+</COLLADA>
+"""
+
+
+def write_plane_mesh(out_png: str, layout: BaseLayout) -> str:
+    """Textured quad covering the base, for the RViz aerial background marker.
+
+    The quad uses a slightly higher contrast copy of the image (<name>_rviz.png)
+    so the overlay symbols stand out.
+    """
+    base = os.path.splitext(out_png)[0]
+    img = PilImage.open(out_png).convert('RGB')
+    img = ImageEnhance.Contrast(img).enhance(1.15)
+    img.save(base + '_rviz.png', optimize=True)
+    path = base + '.dae'
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(PLANE_DAE.format(image=os.path.basename(base + '_rviz.png'),
+                                 w=layout.width, h=layout.height))
+    return path
 
 
 def render(world_file: str, layout: BaseLayout, out_png: str, models_dir: str,
@@ -94,6 +151,7 @@ def render(world_file: str, layout: BaseLayout, out_png: str, models_dir: str,
                 f'# world bounds covered by the image, metres (x east, y north)\n'
                 f'min: [0.0, 0.0]\nmax: [{layout.width}, {layout.height}]\n'
                 f'pixels_per_metre: {PX_PER_M}\n')
+    write_plane_mesh(out_png, layout)
 
 
 def _wait_for_image(timeout: float) -> np.ndarray:

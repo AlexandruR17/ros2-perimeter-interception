@@ -42,6 +42,11 @@ props:
   - {name: vehicle_2,   type: vehicle,  min: [32.9, 6.5],  max: [35.1, 11.3], height: 1.9}
   - {name: tower_sw,    type: tower,    min: [2.6, 2.6],   max: [3.4, 3.4],   height: 4.5}
   - {name: tower_ne,    type: tower,    min: [36.7, 24.7], max: [37.5, 25.5], height: 4.5}
+  - {name: hesco_depot, type: hesco,    min: [17.2, 4.2],  max: [17.8, 8.2],  height: 1.4}
+
+# Ground markings drawn on the ground texture only (no collision).
+markings:
+  helipad: {center: [27.0, 23.3], radius: 1.9}
 
 # Gravel roads drawn on the ground texture only (no collision).
 roads:

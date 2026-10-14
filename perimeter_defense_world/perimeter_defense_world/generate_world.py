@@ -29,11 +29,11 @@ BUILDING_TEXTURE = {
     'concrete': 'concrete', 'metal': 'metal', 'container_green': 'container_green',
     'container_tan': 'container_tan', 'bunker': 'bunker',
 }
-PROP_TEXTURE = {'sandbags': 'sandbags', 'vehicle': 'vehicle', 'tower': 'tower'}
+PROP_TEXTURE = {'sandbags': 'sandbags', 'vehicle': 'vehicle', 'tower': 'tower', 'hesco': 'hesco'}
 # Roofs: textured for containers and metal buildings, tinted concrete otherwise.
 ROOF_TEXTURE = {'metal': 'metal', 'container_green': 'container_green',
                 'container_tan': 'container_tan', 'bunker': 'bunker'}
-ROOF_COLOR = {'concrete': '0.36 0.35 0.33 1', 'metal': '0.85 0.85 0.85 1',
+ROOF_COLOR = {'concrete': '0.2 0.22 0.15 1', 'metal': '0.85 0.85 0.85 1',
               'container_green': '1 1 1 1', 'container_tan': '1 1 1 1', 'bunker': '0.8 0.8 0.75 1'}
 
 
@@ -100,6 +100,16 @@ def prop_model(p: Rect) -> str:
                 f'<visual name="wheel{i}"><pose>{wx:.3f} {wy:.3f} 0.45 0 1.5708 0</pose>'
                 '<geometry><cylinder><radius>0.45</radius><length>0.3</length></cylinder></geometry>'
                 f'{_material(None, "0.08 0.08 0.08 1")}</visual>')
+        # Camouflage net on poles above the vehicle (visual only, above the lidar plane).
+        net_z = p.height + 0.4
+        parts.append(_box_link('camo_net', f'0 0 {net_z:.3f} 0 0 0',
+                               f'{sx + 0.4:.3f} {sy + 1.0:.3f} 0.03',
+                               _material('camo_net', transparency=0.15), collision=False))
+        for i, (dx, dy) in enumerate(((-1, -1), (-1, 1), (1, -1), (1, 1))):
+            px, py = dx * (sx / 2 + 0.15), dy * (sy / 2 + 0.45)
+            parts.append(_box_link(f'pole{i}', f'{px:.3f} {py:.3f} {net_z / 2:.3f} 0 0 0',
+                                   f'0.05 0.05 {net_z:.3f}', _material(None, '0.25 0.22 0.16 1'),
+                                   collision=False))
     else:
         parts.append(_box_link('body', f'0 0 {p.height / 2:.3f} 0 0 0',
                                f'{sx:.3f} {sy:.3f} {p.height:.3f}', _material(tex)))

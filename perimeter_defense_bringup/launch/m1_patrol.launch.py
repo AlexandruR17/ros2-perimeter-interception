@@ -26,6 +26,19 @@ def generate_launch_description() -> LaunchDescription:
                           'enable_camera': LaunchConfiguration('enable_camera'),
                           'start_patrol': LaunchConfiguration('start_patrol')}.items(),
     )
+    viz_params = os.path.join(get_package_share_directory('perimeter_defense_viz'),
+                              'config', 'viz.yaml')
+    layout_markers = Node(
+        package='perimeter_defense_viz', executable='layout_markers', name='layout_markers',
+        parameters=[viz_params, {'aerial_variant': LaunchConfiguration('world_variant')}],
+        output='screen',
+    )
+    fleet_markers = Node(
+        package='perimeter_defense_viz', executable='fleet_markers', name='fleet_markers',
+        parameters=[viz_params, {'use_sim_time': True, 'robots': ['lup1'],
+                                 'callsigns': ['LUP-1']}],
+        output='screen',
+    )
     rviz = Node(
         package='rviz2', executable='rviz2', name='rviz2',
         arguments=['-d', os.path.join(bringup, 'rviz', 'fob3.rviz')],
@@ -42,5 +55,7 @@ def generate_launch_description() -> LaunchDescription:
         world,
         # Give the Gazebo server a moment to load the world before spawning.
         TimerAction(period=3.0, actions=[robot]),
+        layout_markers,
+        fleet_markers,
         rviz,
     ])

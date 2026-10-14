@@ -43,14 +43,14 @@ def ground_texture(layout: BaseLayout, px_per_m: float, seed: int = 7) -> Image.
     rng = np.random.default_rng(seed)
     w = int(layout.width * px_per_m)
     h = int(layout.height * px_per_m)
-    grass = _tint((104, 112, 72), _noise(h, w, rng, (96, 24, 6)), 0.22)
+    grass = _tint((112, 110, 74), _noise(h, w, rng, (96, 24, 6)), 0.24)
     img = Image.fromarray(grass, 'RGB')
 
     def to_px(x: float, y: float) -> Tuple[float, float]:
         return (x * px_per_m, (layout.height - y) * px_per_m)
 
     # Compacted dirt inside the fence.
-    dirt = Image.fromarray(_tint((128, 118, 92), _noise(h, w, rng, (80, 20, 5)), 0.18), 'RGB')
+    dirt = Image.fromarray(_tint((138, 124, 96), _noise(h, w, rng, (80, 20, 5)), 0.2), 'RGB')
     mask = Image.new('L', (w, h), 0)
     md = ImageDraw.Draw(mask)
     (fx0, fy0), (fx1, fy1) = layout.fence_min, layout.fence_max
@@ -81,20 +81,34 @@ def ground_texture(layout: BaseLayout, px_per_m: float, seed: int = 7) -> Image.
                      fill=230)
     img = Image.composite(pad, img, pad_mask)
 
+    # Helipad: concrete disc, painted circle and H.
+    if layout.helipad:
+        (hx, hy), r = layout.helipad
+        d = ImageDraw.Draw(img)
+        cx, cy = to_px(hx, hy)
+        rp = r * px_per_m
+        d.ellipse([cx - rp, cy - rp, cx + rp, cy + rp], fill=(150, 148, 140))
+        ring = rp * 0.85
+        d.ellipse([cx - ring, cy - ring, cx + ring, cy + ring], outline=(230, 226, 210),
+                  width=max(2, int(px_per_m * 0.12)))
+        hw, hh, t = rp * 0.32, rp * 0.45, max(2, int(px_per_m * 0.16))
+        for x in (cx - hw, cx + hw - t):
+            d.rectangle([x, cy - hh, x + t, cy + hh], fill=(230, 226, 210))
+        d.rectangle([cx - hw, cy - t / 2, cx + hw, cy + t / 2], fill=(230, 226, 210))
     return img.filter(ImageFilter.SMOOTH)
 
 
 def wall_texture(kind: str, size: int = 512, seed: int = 11) -> Image.Image:
     rng = np.random.default_rng(seed + sum(ord(c) for c in kind))
     if kind == 'concrete':
-        arr = _tint((168, 165, 156), _noise(size, size, rng, (64, 16, 3)), 0.12)
+        arr = _tint((176, 162, 128), _noise(size, size, rng, (64, 16, 3)), 0.12)
         img = Image.fromarray(arr, 'RGB')
         d = ImageDraw.Draw(img)
         for y in range(0, size, size // 6):  # panel joints
             d.line([(0, y), (size, y)], fill=(130, 128, 120), width=2)
         return img
     if kind in ('metal', 'container_green', 'container_tan'):
-        base = {'metal': (150, 154, 156), 'container_green': (78, 92, 64),
+        base = {'metal': (104, 112, 86), 'container_green': (78, 92, 64),
                 'container_tan': (164, 140, 98)}[kind]
         arr = _tint(base, _noise(size, size, rng, (48, 12, 3)), 0.08).astype(np.float32)
         ribs = (np.sin(np.linspace(0, 40 * np.pi, size)) * 0.12 + 1.0)[None, :, None]
@@ -120,11 +134,30 @@ def wall_texture(kind: str, size: int = 512, seed: int = 11) -> Image.Image:
     if kind == 'tower':
         arr = _tint((96, 84, 64), _noise(size, size, rng, (16, 4, 2)), 0.2)
         return Image.fromarray(arr, 'RGB')
+    if kind == 'hesco':
+        # Sand-filled fabric cages with a wire grid.
+        arr = _tint((170, 152, 110), _noise(size, size, rng, (16, 6, 2)), 0.18)
+        img = Image.fromarray(arr, 'RGB')
+        d = ImageDraw.Draw(img)
+        for i in range(0, size, size // 8):
+            d.line([(i, 0), (i, size)], fill=(110, 100, 78), width=2)
+            d.line([(0, i), (size, i)], fill=(110, 100, 78), width=2)
+        return img
+    if kind == 'camo_net':
+        # Woodland pattern: blobs of three colours over olive.
+        img = Image.new('RGB', (size, size), (86, 96, 62))
+        d = ImageDraw.Draw(img)
+        for color in ((60, 70, 44), (120, 110, 76), (40, 44, 34)):
+            for _ in range(60):
+                x, y = rng.integers(0, size, 2)
+                rx, ry = rng.integers(size // 40, size // 12, 2)
+                d.ellipse([x - rx, y - ry, x + rx, y + ry], fill=color)
+        return img.filter(ImageFilter.GaussianBlur(1.5))
     raise ValueError(f'unknown texture kind {kind}')
 
 
 TEXTURE_KINDS = ('concrete', 'metal', 'container_green', 'container_tan', 'bunker',
-                 'sandbags', 'vehicle', 'tower')
+                 'sandbags', 'vehicle', 'tower', 'hesco', 'camo_net')
 
 
 def write_textures(layout: BaseLayout, out_dir: str, ground_px_per_m: float = 40.0) -> None:
