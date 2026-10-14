@@ -1,0 +1,13 @@
+# C2 dashboard. The page is served on http://localhost:<port>; live data
+# comes through rosbridge (websocket) on rosbridge_port.
+dashboard_server:
+  ros__parameters:
+    port: 8080
+    rosbridge_port: 9090
+
+c2_state:
+  ros__parameters:
+    rate: 4.0                    # Hz, /c2/state
+    command_post: [8.5, 17.0]    # m, radio mast (simulated link quality)
+    plan_points: 40              # Nav2 plan points sent per robot
+    events_sent: 60              # last events sent with each state

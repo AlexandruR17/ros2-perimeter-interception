@@ -28,7 +28,7 @@ physical security side.
 | M5 | Own personnel in authorized zones, threat assessor, false alarm scenario S2 (soldiers, transponders and IFF already in M2) | planned |
 | M6 | Multi-target tracking, two intruders, diversion (S3, S4) | planned |
 | M7 | Batch evaluation, CSV and plots | planned |
-| M8 | C2 web dashboard via rosbridge, manual intruder control | planned |
+| M8 | C2 web dashboard via rosbridge (first version done: map, symbols, MGRS, entities, SALUTE, alerts with ACK, audit log, replay, night mode); manual intruder control, scenario commands, 3D view | in progress |
 
 ## Architecture
 
@@ -97,7 +97,7 @@ evaluation package for metrics.
 | `perimeter_defense_msgs` | Detection(Array), Track(Array), PredictedPath(Array), Alert, ThreatLevel, RoleAssignment, Transponder, Custody | shared |
 | `perimeter_defense` | Fence sensor processing, lidar person detection, tracking and prediction, IFF, interceptor allocation (threat assessment from M5) | **individual contribution** |
 | `perimeter_defense_eval` | Headless batch runs, CSV, plots | M7 |
-| `dashboard` | C2 web interface | M8 |
+| `perimeter_defense_dashboard` | C2 web dashboard: C2 state aggregator, web server, web application (Leaflet, milsymbol, mgrs, roslibjs vendored) | common base |
 
 ## Nodes and topics (implemented so far)
 
@@ -126,6 +126,9 @@ simulation ground truth and are only used by the scenario scripts and the
 evaluation; a unit test checks that the `perimeter_defense` package never
 references them.
 | `fleet_markers` | / | `/tf` | `/fleet/markers` |
+| `c2_state` (dashboard) | / | `/threats/tracks`, `/threats/predicted_paths`, `/fleet/roles`, `/perimeter/*` alerts and custody, `/lupN/odom`, `/lupN/plan`, `/tf` | `/c2/state` (JSON, 4 Hz) |
+| `dashboard_server` | / | | HTTP :8080 (web page, `/config.json` from zones.yaml, `/maps/`) |
+| `rosbridge_websocket` | / | | websocket :9090 for the browser |
 | `status_board` | / | `/threats/tracks`, `/perimeter/fence_alert`, `/perimeter/spot_reports`, `/fleet/roles`, `/perimeter/custody`, `/perimeter/transponders` | `/perimeter/status_board` |
 
 ## Environment
@@ -277,6 +280,62 @@ ros2 topic echo /perimeter/spot_reports
 ros2 topic echo /perimeter/custody
 python3 -m pytest src/ros2-perimeter-interception/perimeter_defense/test
 ```
+
+## C2 web dashboard
+
+Starts with every M2 launch (`dashboard:=false` to disable). It needs
+rosbridge:
+
+```bash
+sudo apt install ros-jazzy-rosbridge-suite
+```
+
+Open **http://localhost:8080** in a browser (on Windows the WSL ports are
+reachable on localhost). Live data comes from `/c2/state` through rosbridge on
+port 9090.
+
+- Top: unit and base, threat level (provisional until the threat assessor of
+  M5), Zulu date-time group and simulation time, link status with latency,
+  operator call sign, layer menu, night mode (red on black). The banners
+  "EXERCIȚIU · DATE SIMULATE" mark the whole page as exercise data.
+- Map (Leaflet, local metric frame): top-down render of the world, MGRS grid
+  every 10 m (the base is placed at `georef.mgrs_origin` in zones.yaml, a
+  fictional location; the cursor shows MGRS and latitude/longitude),
+  MIL-STD-2525D symbols (milsymbol): UGVs as friendly reconnaissance units
+  with call signs and heading, contacts as hostile (red diamond) or unknown
+  (yellow) dismounted individuals, velocity leaders, dotted 6 s predictions,
+  2-sigma uncertainty ellipses, 10 m sensor rings, Nav2 plans, patrol routes,
+  breaches, objective, authorized zones, detention building. The exercise
+  truth layer (`/sim/truth_markers`, off by default) is labelled SIM.
+- Left: entity list with filters (all, hostile, unknown, own, closed) and
+  search.
+- Right: selected entity (position in MGRS and lat/lon, speed, heading in
+  degrees and mils, role, distance to goal, simulated battery and radio
+  link), SALUTE report in Romanian for contacts (copy button), alert queue with
+  ACK, operator audit log (also published on `/c2/operator_log`), ROS topic
+  list (rosapi).
+- Bottom: timeline of the last 10 minutes with the threat level and the
+  events; click or drag to replay a past state, LIVE (or key `L`) to return.
+
+Design references and what was borrowed (from public material only; no
+names, emblems or insignia of real institutions are used):
+
+| Reference | Borrowed |
+|---|---|
+| Anduril Lattice | map-first full-screen layout, live tracks with sensor coverage overlays, assets tasked from the side panel, dark minimal styling |
+| ATAK / WinTAK | MIL-STD-2525 symbols with call sign labels, MGRS coordinates as the primary position format, colour-coded alert markers |
+| Systematic SitaWare | common operational picture with friendly force tracking, layer toggles to declutter, record and replay for the debrief |
+| Palantir Gotham | timeline with a cursor and event markers, entity list with a selected object panel |
+
+Sources: [Anduril front-end job description (map-based C2 UI)](https://jobs.generalcatalyst.com/companies/anduril/jobs/67900088-software-engineer-front-end),
+[TAK ecosystem overview](https://knogin.com/developers/tactical-awareness-tak-ecosystem),
+[SitaWare Headquarters](https://systematic.com/int/industries/defence/products/sitaware-suite/sitaware-headquarters),
+[SitaWare new features (3D, declutter, replay)](https://monch.com/?p=336136),
+[Palantir map timeline documentation](https://palantir.com/docs/jp/foundry/map/timeline/).
+
+Planned for M8: scenario and mode commands, manual intruder control, incident
+report and run comparison, 3D view (overview, chase, robot point of view with
+lidar points) and optional live camera.
 
 ## Design notes (M1)
 

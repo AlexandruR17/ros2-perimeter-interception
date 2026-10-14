@@ -9,6 +9,13 @@ base:
   unit: "Centrul de Comandă Sector Nord"
   code: "FOB-3"
 
+# Map grid for the C2 dashboard: the local origin (0, 0) is placed at this
+# MGRS point (fictional placement in farmland of the Romanian plain, UTM
+# zone 35T). The local frame is aligned with the UTM grid: x = easting,
+# y = northing, so a local point (x, y) is MGRS easting + x, northing + y.
+georef:
+  mgrs_origin: "35TNK1500038000"
+
 area:
   width: 40.0
   height: 28.0

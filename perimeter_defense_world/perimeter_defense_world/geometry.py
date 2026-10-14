@@ -116,6 +116,7 @@ class BaseLayout:
     render_min: Point = (0.0, 0.0)
     render_max: Point = (0.0, 0.0)
     render_px_per_m: float = 30.0
+    mgrs_origin: str = ''
     raw: dict = field(default_factory=dict, repr=False)
 
     def obstacles(self) -> List[Rect]:
@@ -166,6 +167,10 @@ class BaseLayout:
     def line_of_sight(self, a: Point, b: Point) -> bool:
         """True when no building or prop blocks the straight line a-b (the fence does not)."""
         return not any(_segment_hits_rect(a, b, r) for r in self.obstacles())
+
+    def buildings_between(self, a: Point, b: Point) -> int:
+        """Number of buildings the straight line a-b goes through."""
+        return sum(1 for r in self.buildings if _segment_hits_rect(a, b, r))
 
     def is_inside_fence(self, p: Point) -> bool:
         return (self.fence_min[0] < p[0] < self.fence_max[0]
@@ -273,6 +278,7 @@ def load_layout(path: Optional[str] = None) -> BaseLayout:
         render_max=_pt(raw.get('render', {}).get('bounds', {}).get(
             'max', [raw['area']['width'], raw['area']['height']])),
         render_px_per_m=float(raw.get('render', {}).get('pixels_per_metre', 30.0)),
+        mgrs_origin=str(raw.get('georef', {}).get('mgrs_origin', '')),
         raw=raw,
     )
 

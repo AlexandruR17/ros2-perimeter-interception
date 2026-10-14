@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FOB-3 C2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="banner">EXERCIȚIU · DATE SIMULATE · EXERCIȚIU · DATE SIMULATE</div>
+
+  <header class="topbar">
+    <div class="unit">
+      <i data-lucide="shield"></i>
+      <div>
+        <div class="unit-code" id="unit-code">FOB-3</div>
+        <div class="unit-name" id="unit-name"></div>
+      </div>
+    </div>
+    <div class="threat" id="threat"><span class="label">NIVEL AMENINȚARE</span><span class="value" id="threat-value">-</span></div>
+    <div class="status">
+      <div class="clock"><div class="dtg mono" id="dtg">------Z --- --</div><div class="sub mono" id="simtime">T+ --:--</div></div>
+      <div class="link" id="link"><i data-lucide="radio-tower"></i><span id="link-text">DECONECTAT</span></div>
+      <label class="operator"><i data-lucide="user"></i><input id="operator" maxlength="16" placeholder="OPERATOR" spellcheck="false"></label>
+      <button id="layers-btn" title="Straturi"><i data-lucide="layers"></i></button>
+      <button id="night-btn" title="Mod noapte (roșu)"><i data-lucide="moon"></i></button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="left panel">
+      <div class="panel-title"><i data-lucide="list"></i>ENTITĂȚI</div>
+      <div class="filters" id="filters">
+        <button data-filter="ALL" class="on">TOATE</button>
+        <button data-filter="HOSTILE">OSTIL</button>
+        <button data-filter="UNKNOWN">NECUNOSCUT</button>
+        <button data-filter="OWN">PROPRII</button>
+        <button data-filter="CLOSED">ÎNCHISE</button>
+      </div>
+      <input class="search" id="search" placeholder="CAUTĂ  ID / INDICATIV" spellcheck="false">
+      <div class="entity-list" id="entities"></div>
+      <div class="counters mono" id="counters"></div>
+    </aside>
+
+    <section class="mapwrap">
+      <div id="map"></div>
+      <div class="replay-badge" id="replay-badge" hidden>REPLAY</div>
+      <div class="cursor-readout mono" id="cursor"></div>
+      <div class="layers-menu panel" id="layers-menu" hidden></div>
+    </section>
+
+    <aside class="right panel">
+      <div class="section">
+        <div class="panel-title"><i data-lucide="crosshair"></i>SELECȚIE</div>
+        <div id="selection" class="selection"><div class="empty">Nicio entitate selectată</div></div>
+      </div>
+      <div class="section" id="salute-section" hidden>
+        <div class="panel-title"><i data-lucide="file-text"></i>RAPORT SALUTE
+          <button class="small" id="salute-copy" title="Copiază"><i data-lucide="copy"></i></button></div>
+        <div id="salute" class="salute mono"></div>
+      </div>
+      <div class="section grow">
+        <div class="panel-title"><i data-lucide="bell"></i>ALERTE <span class="badge" id="alert-count">0</span>
+          <button class="small" id="ack-all" title="Confirmă toate"><i data-lucide="check-check"></i></button></div>
+        <div id="alerts" class="alerts"></div>
+      </div>
+      <div class="section">
+        <div class="panel-title collapsible" data-target="audit"><i data-lucide="scroll-text"></i>JURNAL OPERATOR</div>
+        <div id="audit" class="audit mono"></div>
+      </div>
+      <div class="section">
+        <div class="panel-title collapsible collapsed" data-target="system"><i data-lucide="cpu"></i>SISTEM · TOPICURI ROS</div>
+        <div id="system" class="system mono" hidden></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="timeline">
+    <div class="tl-controls">
+      <button id="live-btn" class="on" title="Live"><i data-lucide="radio"></i>LIVE</button>
+      <span class="mono" id="tl-time">--:--</span>
+    </div>
+    <div class="tl-track" id="tl-track">
+      <svg id="tl-svg" preserveAspectRatio="none"></svg>
+    </div>
+  </footer>
+  <div class="banner">EXERCIȚIU · DATE SIMULATE · EXERCIȚIU · DATE SIMULATE</div>
+
+  <script src="vendor/leaflet.js"></script>
+  <script src="vendor/milsymbol.js"></script>
+  <script src="vendor/mgrs.min.js"></script>
+  <script src="vendor/roslib.min.js"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

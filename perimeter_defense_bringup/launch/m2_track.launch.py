@@ -67,6 +67,8 @@ def _launch(context, *args, **kwargs):
              parameters=[{'use_sim_time': True}],
              condition=IfCondition(g('rviz'))),
     ]
+    if g('dashboard').lower() == 'true':
+        actions.append(include('dashboard.launch.py', {'robots': ','.join(robots)}))
     if soldiers:
         actions.append(TimerAction(period=3.0, actions=[
             include('soldiers.launch.py', {'soldiers': ','.join(soldiers), 'intruders': 'intruder1'})]))
@@ -86,6 +88,8 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('soldiers', default_value='false',
                               description='own soldiers on foot (spot reports, escort); '
                                           'default: fully robotic base'),
+        DeclareLaunchArgument('dashboard', default_value='true',
+                              description='C2 web dashboard on http://localhost:8080'),
         DeclareLaunchArgument('start_delay', default_value='15.0',
                               description='s before the intruder starts walking'),
         OpaqueFunction(function=_launch),
