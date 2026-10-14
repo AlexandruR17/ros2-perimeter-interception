@@ -22,7 +22,7 @@ physical security side.
 | Milestone | Content | Status |
 |---|---|---|
 | M1 | Realistic world, generated Nav2 maps, one UGV with Nav2 + AMCL patrolling waypoints | done |
-| M2 | Intruder actor, fence sensor, lidar person detector, tracker, one robot following the track | planned |
+| M2 | Intruder actor, fence sensor, lidar person detector, tracker, one robot following the track | done |
 | M3 | Predictive interception with one robot, naive mode, RViz markers | planned |
 | M4 | Three namespaced robots, role allocation, scenario S1 | planned |
 | M5 | Own personnel, transponders, IFF (scenario S2) | planned |
@@ -91,8 +91,9 @@ evaluation package for metrics.
 | `perimeter_defense_bringup` | Launch files, Nav2 and fleet configuration, RViz | common base |
 | `perimeter_defense_sim` | Odometry drift, baseline patrol; later actors, transponders, manual intruder | common base |
 | `perimeter_defense_viz` | Tactical RViz overlay: aerial background, grid, fence and breaches, objective, zones, routes, fleet symbols | common base |
-| `perimeter_defense_msgs` | Track, TrackArray, ThreatLevel, Alert, RoleAssignment, Transponder | M2+ |
-| `perimeter_defense` | Detection, IFF, tracking and prediction, interceptor allocation | **individual contribution**, M2+ |
+| `perimeter_defense_gz_plugins` | `ActorDriver` Gazebo system: velocity-driven animated actors (walk, run, stand) | common base |
+| `perimeter_defense_msgs` | Detection(Array), Track(Array), PredictedPath(Array), Alert, ThreatLevel, RoleAssignment, Transponder | shared |
+| `perimeter_defense` | Fence sensor processing, lidar person detection, tracking and prediction, interceptor allocation (IFF and threat assessment from M5) | **individual contribution** |
 | `perimeter_defense_eval` | Headless batch runs, CSV, plots | M7 |
 | `dashboard` | C2 web interface | M8 |
 
@@ -109,6 +110,16 @@ evaluation package for metrics.
 | Nav2 (controller, planner, behaviors, bt_navigator) | /lupN | `scan`, `odom`, `/map`, `speed_limit` | `cmd_vel`, `plan` |
 | `patrol` | /lupN | `patrol_enable` | `navigate_to_pose` goals, `speed_limit` |
 | `layout_markers` | / | | `/perimeter/layout_markers` (latched) |
+| `intruder_controller` (sim) | / | `/sim/actors/<a>/pose`, `/sim/ground_truth/<r>/pose`, `/threats/tracks` | `/actor/<a>/cmd_vel` |
+| **`fence_sensor`** | / | `/perimeter/breach_<b>/scan` | `/perimeter/fence_alert` |
+| **`person_detector`** | / | `/lupN/scan`, `/map`, `/tf` | `/perimeter/detections` |
+| **`tracker`** | / | `/perimeter/detections`, `/perimeter/fence_alert`, `/threats/neutralize`, `/map` | `/threats/tracks` (10 Hz), `/threats/predicted_paths`, `/threats/markers` |
+| **`interceptor_allocator`** | / | `/threats/tracks`, `/tf` | `/lupN/navigate_to_pose`, `/lupN/patrol_enable`, `/lupN/speed_limit`, `/threats/neutralize`, `/fleet/roles` |
+
+Nodes in bold are the individual contribution. Topics under `/sim/` carry
+simulation ground truth and are only used by the scenario scripts and the
+evaluation; a unit test checks that the `perimeter_defense` package never
+references them.
 | `fleet_markers` | / | `/tf` | `/fleet/markers` |
 
 ## Environment
@@ -179,6 +190,32 @@ colcon test --packages-select perimeter_defense_world && colcon test-result --ve
 python3 -m pytest perimeter_defense_world/test
 ```
 
+## M2: intruder, fence sensor, detection, tracking, one robot following
+
+```bash
+ros2 launch perimeter_defense_bringup m2_track.launch.py                 # west route, LUP-2
+ros2 launch perimeter_defense_bringup m2_track.launch.py route:=east
+ros2 launch perimeter_defense_bringup m2_track.launch.py headless:=true  # RViz only, lighter
+```
+
+What happens: the intruder starts outside the fence at (30.5, 27.2) after
+`start_delay` seconds, crosses the north breach and walks to the depot
+entrance. The beam-break sensor at the breach raises
+`Breach NORTH: perimeter crossed`; the tracker creates an ALERT track at the
+breach (1.5 m uncertainty) and LUP-2 leaves its patrol to INVESTIGATE. When
+its lidar sees the intruder the track becomes TRACKED (yellow, UNK in RViz,
+with uncertainty ellipse, velocity arrow and the dotted 6 s prediction), the
+intruder starts running and LUP-2 switches to FOLLOW. A robot within 1 m of
+the track neutralizes it. In follow mode the robot often arrives too late;
+predictive interception comes in M3, the guard role in M4.
+
+```bash
+ros2 topic echo /perimeter/fence_alert
+ros2 topic echo /threats/tracks --field tracks
+ros2 topic echo /fleet/roles
+python3 -m pytest src/ros2-perimeter-interception/perimeter_defense/test
+```
+
 ## Design notes (M1)
 
 **Robot.** The Clearpath simulator does support Jazzy/Harmonic, but it
@@ -234,19 +271,58 @@ would. The RViz background is the top-down render of the Gazebo world on a
 textured plane, so the map in RViz looks like the simulated base.
 
 **Performance.** With one robot, the camera off and software rendering on a
-4-core machine without GPU, the real-time factor is 0.99.
+4-core machine without GPU, the real-time factor is 0.99. The robot camera is
+off by default (`enable_camera:=true` to turn it on); detection uses the lidar.
+
+## Design notes (M2)
+
+**Actors.** `ActorDriver` (Gazebo system plugin) moves an actor with a
+commanded planar velocity, selects the walk, run or stand animation and
+advances the skeleton animation with the distance travelled. The scenario
+actors are written into the world file at launch, because actors spawned
+while the sensors' rendering scene is still loading are not visible to the
+lidars. Measured: 1.29 m/s for a 1.3 m/s command; the robot lidar places the
+actor within 0.1 m of its true position.
+
+**Fence sensor.** Each breach has a beam-break sensor: an 11-beam lidar fan
+along the gap, 1 m above the ground. It only tells which breach was crossed,
+so the alert is the breach centre with 1.5 m uncertainty.
+
+**Person detection.** Lidar returns are transformed to the map with the
+robot's own localization, returns near the static map are removed with a
+margin that grows with range (0.35 m + 0.035 m per metre, it absorbs the AMCL
+heading error on far walls), returns around own robots are removed, and the
+rest is clustered in scan order. Clusters 0.15-0.9 m wide are people; the
+lower bound is below the 0.3 m of the brief because a person seen side-on is
+only 0.15-0.25 m deep on a planar lidar. Detections of all robots are fused
+within 0.8 m.
+
+**Tracking.** Constant velocity Kalman filter per target, white-noise
+acceleration 1.0 m/s^2 (tuned in simulation: 0.18 m/s velocity error, about
+0.85 s to follow a walk-to-run change), Mahalanobis gating at the 99 % chi-square
+quantile and the Hungarian algorithm for the one-to-one assignment. A greedy
+nearest neighbour swaps identities when two people cross; the optimal
+assignment does not (unit test). Tracks are confirmed after 3 hits, become
+LOST after 1.5 s without a detection and keep predicting with a decaying
+velocity. In the west-route run the track error against ground truth was
+0.1-0.45 m while the intruder was walking and running.
 
 ## Individual contribution
 
-The individual contribution of the author is the `perimeter_defense` package
-(implemented from M2 on):
+The individual contribution of the author is the `perimeter_defense` package:
 
-- `fence_sensor_node`
-- `person_detector_node`
-- `iff_node`
-- `tracker_node`
-- `interceptor_allocator_node`
-- `threat_assessor_node`
+| Node | Status |
+|---|---|
+| `fence_sensor_node` | M2 |
+| `person_detector_node` | M2 |
+| `tracker_node` (with prediction and markers) | M2 |
+| `interceptor_allocator_node` | M2 follow mode; predictive/naive in M3, roles in M4 |
+| `iff_node` | M5 |
+| `threat_assessor_node` | M5 |
+
+The ROS-independent algorithms are in `perimeter_defense/core` (Kalman
+filter, association, lidar clustering, static map queries, tracker,
+prediction) with pytest unit tests in `perimeter_defense/test`.
 
 The world, robot model, Nav2 configuration, simulation helpers (actors,
 transponders, odometry drift, patrol) and the bringup are the common base.

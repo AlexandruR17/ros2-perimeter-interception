@@ -29,6 +29,8 @@
   <exec_depend>perimeter_defense_description</exec_depend>
   <exec_depend>perimeter_defense_sim</exec_depend>
   <exec_depend>perimeter_defense_viz</exec_depend>
+  <exec_depend>perimeter_defense</exec_depend>
+  <exec_depend>perimeter_defense_gz_plugins</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

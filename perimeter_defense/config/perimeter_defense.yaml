@@ -1,0 +1,53 @@
+# Parameters of the perimeter defense nodes (individual contribution).
+fence_sensor:
+  ros__parameters:
+    uncertainty: 1.5          # m, coarse fence sensor accuracy
+    min_blocked_beams: 2
+    clearance: 0.4            # m shorter than the clear gap counts as blocked
+    cooldown: 3.0             # s between alerts of the same breach
+
+person_detector:
+  ros__parameters:
+    rate: 10.0
+    max_scan_age: 0.3
+    fusion_radius: 0.8        # m, detections of several robots merged
+    detection_radius: 10.0    # m, around each robot
+    min_range: 0.3
+    cluster_tolerance: 0.35   # m between neighbouring returns
+    min_points: 2
+    min_width: 0.15           # m; a person seen side-on is only 0.15-0.25 m deep
+    max_width: 0.9
+    static_margin: 0.35       # m, returns closer to the static map are walls ...
+    static_margin_per_m: 0.035  # ... plus this per metre of range (AMCL heading error)
+    robot_exclusion: 0.6      # m, returns around own robots
+    centroid_offset: 0.1      # m, lidar sees the near surface of the body
+
+tracker:
+  ros__parameters:
+    rate: 10.0
+    accel_std: 1.0            # m/s^2, constant velocity model process noise
+    meas_std: 0.2             # m, lidar detection
+    fence_std: 1.5            # m, fence sensor
+    init_vel_std: 1.5         # m/s
+    gate_chi2: 9.21           # 99 % gate, 2 dof
+    confirm_hits: 3
+    confirm_window: 1.0       # s
+    lost_timeout: 1.5         # s without detection -> LOST (prediction continues)
+    delete_after: 8.0         # s in LOST -> deleted
+    lost_velocity_tau: 2.0    # s, velocity of a LOST track decays (people stop)
+    alert_timeout: 20.0       # s for a fence-only alert to be confirmed
+    max_speed: 3.5            # m/s
+    neutralized_keep: 10.0
+    prediction_horizon: 6.0   # s
+    prediction_step: 0.2      # s
+    obstacle_margin: 0.2      # m, prediction stops at obstacles
+
+interceptor_allocator:
+  ros__parameters:
+    mode: follow              # M2: follow; M3: predictive or naive
+    period: 0.3               # s, role recalculation
+    neutralize_distance: 1.0  # m
+    resend_distance: 0.7      # m, goal resent if the target moved more
+    resend_period: 0.6        # s, or if this much time passed
+    standoff: 0.5             # m, goal short of the target (it is an obstacle)
+    max_speed: 2.0            # m/s

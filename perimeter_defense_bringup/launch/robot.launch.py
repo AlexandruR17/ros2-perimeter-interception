@@ -53,6 +53,11 @@ def _bridge_config(robot: str, camera: bool) -> str:
         'gz_type_name': gz_type,
         'direction': direction,
     } for topic, ros_type, gz_type, direction in entries]
+    # Ground truth, for the scenario scripts and the evaluation only.
+    cfg.append({'ros_topic_name': f'/sim/ground_truth/{robot}/pose',
+                'gz_topic_name': f'/model/{robot}/pose',
+                'ros_type_name': 'geometry_msgs/msg/Pose', 'gz_type_name': 'gz.msgs.Pose',
+                'direction': 'GZ_TO_ROS'})
     return _write_tmp(f'{robot}_bridge_', yaml.safe_dump(cfg))
 
 
@@ -161,7 +166,7 @@ def _launch_robot(context, *args, **kwargs):
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robot', default_value='lup1', description='robot namespace'),
-        DeclareLaunchArgument('enable_camera', default_value='true'),
+        DeclareLaunchArgument('enable_camera', default_value='false'),
         DeclareLaunchArgument('start_patrol', default_value='true'),
         DeclareLaunchArgument('zones_file', default_value='',
                               description='zones.yaml override (default: installed one)'),

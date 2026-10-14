@@ -1,12 +1,19 @@
-"""Start Gazebo with the FOB-3 world, the /clock bridge and the two global maps.
+"""Start Gazebo with the base world, the world-level bridges and the two global maps.
 
-/map                  navigation map (solid fence), used by every costmap
-/map_localization     AMCL map (fence posts only, the lidar sees through the mesh)
+Ground truth robot poses are bridged per robot (robot.launch.py) on
+/sim/ground_truth/<robot>/pose, for the scenario scripts and the evaluation only.
+
+/map                         navigation map (solid fence), used by every costmap
+/map_localization            AMCL map (fence posts only, the lidar sees through the mesh)
+/perimeter/breach_<b>/scan   beam-break fence sensors at the breaches
 """
 
+import math
 import os
+import tempfile
 
-from ament_index_python.packages import get_package_share_directory
+import yaml
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (AppendEnvironmentVariable, DeclareLaunchArgument,
                             IncludeLaunchDescription, OpaqueFunction)
@@ -14,18 +21,62 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from perimeter_defense_sim.actors import actor_sdf
+from perimeter_defense_world.geometry import load_layout
+
 
 def _gazebo(context, *args, **kwargs):
     world_pkg = get_package_share_directory('perimeter_defense_world')
     variant = LaunchConfiguration('world_variant').perform(context)
     headless = LaunchConfiguration('headless').perform(context).lower() == 'true'
     world = os.path.join(world_pkg, 'worlds', f'fob3_{variant}.sdf')
+    actors = _actors_sdf(LaunchConfiguration('actors').perform(context))
+    if actors:
+        # Actors are part of the world file: actors spawned while the sensors'
+        # rendering scene is still loading are not visible to the lidars.
+        with open(world, 'r', encoding='utf-8') as f:
+            sdf = f.read().replace('  </world>', actors + '\n  </world>')
+        fd, world = tempfile.mkstemp(prefix='fob3_scenario_', suffix='.sdf')
+        with os.fdopen(fd, 'w') as f:
+            f.write(sdf)
     gz_args = f'-r -s --headless-rendering {world}' if headless else f'-r {world}'
     return [IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
             get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')),
         launch_arguments={'gz_args': gz_args, 'on_exit_shutdown': 'true'}.items(),
     )]
+
+
+def _actors_sdf(spec: str) -> str:
+    """'name:spawn,name:spawn' -> actor SDF elements at the given intruder spawns."""
+    layout = load_layout()
+    tx, ty = layout.objective_target
+    out = []
+    for item in [s for s in spec.split(',') if s.strip()]:
+        name, spawn = item.strip().split(':')
+        x, y = layout.intruder_spawns[spawn]
+        sdf = actor_sdf(name, x, y, math.atan2(ty - y, tx - x))
+        out.append(sdf.split('<sdf version="1.9">')[1].replace('</sdf>', '').strip())
+    return '\n'.join(out)
+
+
+def _world_bridge_config() -> str:
+    """Bridge for the clock, the breach sensors and the ground truth poses."""
+    layout = load_layout()
+    entries = [
+        {'ros_topic_name': '/clock', 'gz_topic_name': '/clock',
+         'ros_type_name': 'rosgraph_msgs/msg/Clock', 'gz_type_name': 'gz.msgs.Clock',
+         'direction': 'GZ_TO_ROS'},
+    ]
+    for br in layout.breaches:
+        topic = f'/perimeter/breach_{br.name}/scan'
+        entries.append({'ros_topic_name': topic, 'gz_topic_name': topic,
+                        'ros_type_name': 'sensor_msgs/msg/LaserScan',
+                        'gz_type_name': 'gz.msgs.LaserScan', 'direction': 'GZ_TO_ROS'})
+    fd, path = tempfile.mkstemp(prefix='world_bridge_', suffix='.yaml')
+    with os.fdopen(fd, 'w') as f:
+        yaml.safe_dump(entries, f)
+    return path
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -38,11 +89,15 @@ def generate_launch_description() -> LaunchDescription:
                               description='day or night'),
         DeclareLaunchArgument('headless', default_value='false',
                               description='run the Gazebo server without GUI'),
+        DeclareLaunchArgument('actors', default_value='',
+                              description='scenario actors, "name:spawn,name:spawn"'),
         AppendEnvironmentVariable('GZ_SIM_RESOURCE_PATH', os.path.join(world_pkg, 'models')),
+        AppendEnvironmentVariable('GZ_SIM_SYSTEM_PLUGIN_PATH', os.path.join(
+            get_package_prefix('perimeter_defense_gz_plugins'), 'lib')),
         OpaqueFunction(function=_gazebo),
         Node(
-            package='ros_gz_bridge', executable='parameter_bridge', name='clock_bridge',
-            arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
+            package='ros_gz_bridge', executable='parameter_bridge', name='world_bridge',
+            parameters=[{'config_file': _world_bridge_config()}],
             output='screen',
         ),
         Node(

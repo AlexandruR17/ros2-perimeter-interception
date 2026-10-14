@@ -49,7 +49,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('world_variant', default_value='day'),
         DeclareLaunchArgument('headless', default_value='false'),
-        DeclareLaunchArgument('enable_camera', default_value='true'),
+        DeclareLaunchArgument('enable_camera', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='true'),
         DeclareLaunchArgument('start_patrol', default_value='true'),
         world,

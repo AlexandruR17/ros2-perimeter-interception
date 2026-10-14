@@ -160,8 +160,10 @@ def prop_model(p: Rect) -> str:
         parts.append(_box_link('camo_net', f'0 0 {net_z:.3f} 0 0 0',
                                f'{sx + 0.4:.3f} {sy + 1.0:.3f} 0.03',
                                _material('camo_net', transparency=0.15), collision=False))
+        # Poles stand inside the vehicle footprint, so the lidar never sees
+        # anything outside the occupancy map.
         for i, (dx, dy) in enumerate(((-1, -1), (-1, 1), (1, -1), (1, 1))):
-            px, py = dx * (sx / 2 + 0.15), dy * (sy / 2 + 0.45)
+            px, py = dx * (sx / 2 - 0.05), dy * (sy / 2 - 0.05)
             parts.append(_box_link(f'pole{i}', f'{px:.3f} {py:.3f} {net_z / 2:.3f} 0 0 0',
                                    f'0.05 0.05 {net_z:.3f}', _material(None, '0.25 0.22 0.16 1'),
                                    collision=False))
@@ -231,6 +233,34 @@ def fence_model(layout: BaseLayout) -> str:
             '</visual>')
     return (f'<model name="perimeter_fence"><static>true</static>'
             f'<link name="link">{"".join(parts)}</link></model>')
+
+
+def breach_sensor_model(layout: BaseLayout, breach) -> str:
+    """Beam-break fence sensor: a narrow lidar fan along the breach at 1 m height.
+
+    It sits 0.15 m inside the gap at the 'from' end and looks along the gap, so
+    a person crossing the breach cuts the beams (fence mesh is masked out).
+    """
+    gap = breach.end - breach.start
+    if breach.side in ('north', 'south'):
+        y = layout.fence_max[1] if breach.side == 'north' else layout.fence_min[1]
+        x, yaw = breach.start + 0.15, 0.0
+    else:
+        x = layout.fence_min[0] if breach.side == 'west' else layout.fence_max[0]
+        y, yaw = breach.start + 0.15, math.pi / 2
+    name = f'breach_sensor_{breach.name}'
+    return (
+        f'<model name="{name}"><static>true</static><pose>{x:.3f} {y:.3f} 1.0 0 0 {yaw:.4f}</pose>'
+        '<link name="link">'
+        f'<visual name="housing"><geometry><box><size>0.08 0.08 0.1</size></box></geometry>'
+        f'{_material(None, "0.15 0.15 0.15 1")}</visual>'
+        f'<sensor name="beams" type="gpu_lidar"><topic>/perimeter/breach_{breach.name}/scan</topic>'
+        f'<gz_frame_id>{name}</gz_frame_id><update_rate>20</update_rate><always_on>true</always_on>'
+        '<lidar><scan><horizontal><samples>11</samples><resolution>1</resolution>'
+        '<min_angle>-0.06</min_angle><max_angle>0.06</max_angle></horizontal></scan>'
+        f'<range><min>0.05</min><max>{gap + 0.5:.2f}</max><resolution>0.01</resolution></range>'
+        f'<visibility_mask>4294967293</visibility_mask></lidar></sensor>'
+        '</link></model>')
 
 
 def ground_model(layout: BaseLayout) -> str:
@@ -324,6 +354,7 @@ def world_sdf(layout: BaseLayout, night: bool = False, name: str = 'fob3') -> st
     models = [ground_model(layout), fence_model(layout)]
     models += [building_model(b) for b in layout.buildings]
     models += [prop_model(p) for p in layout.props]
+    models += [breach_sensor_model(layout, br) for br in layout.breaches]
     trees = windbreak_model(layout)
     if trees:
         models.append(trees)
