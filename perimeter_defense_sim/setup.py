@@ -24,6 +24,7 @@ setup(
             'odom_noise = perimeter_defense_sim.odom_noise_node:main',
             'patrol = perimeter_defense_sim.patrol_node:main',
             'intruder_controller = perimeter_defense_sim.intruder_controller_node:main',
+            'truth_markers = perimeter_defense_sim.truth_markers_node:main',
         ],
     },
 )

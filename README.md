@@ -111,6 +111,7 @@ evaluation package for metrics.
 | `patrol` | /lupN | `patrol_enable` | `navigate_to_pose` goals, `speed_limit` |
 | `layout_markers` | / | | `/perimeter/layout_markers` (latched) |
 | `intruder_controller` (sim) | / | `/sim/actors/<a>/pose`, `/sim/ground_truth/<r>/pose`, `/threats/tracks` | `/actor/<a>/cmd_vel` |
+| `truth_markers` (sim) | / | `/sim/actors/<a>/pose`, `/sim/actors/<a>/state` | `/sim/truth_markers` (exercise truth overlay) |
 | **`fence_sensor`** | / | `/perimeter/breach_<b>/scan` | `/perimeter/fence_alert` |
 | **`person_detector`** | / | `/lupN/scan`, `/map`, `/tf` | `/perimeter/detections` |
 | **`tracker`** | / | `/perimeter/detections`, `/perimeter/fence_alert`, `/threats/neutralize`, `/map` | `/threats/tracks` (10 Hz), `/threats/predicted_paths`, `/threats/markers` |
@@ -197,6 +198,12 @@ ros2 launch perimeter_defense_bringup m2_track.launch.py                 # west 
 ros2 launch perimeter_defense_bringup m2_track.launch.py route:=east
 ros2 launch perimeter_defense_bringup m2_track.launch.py headless:=true  # RViz only, lighter
 ```
+
+RViz shows two layers for the intruder: the white ring labelled
+`EX INTRUDER1 <state>` with a dotted trail is the exercise truth (where the
+actor really is, from the simulator, display "Exercise truth (sim)"); the
+coloured track (`T1 UNK ...`) is what the defense system knows from its
+sensors. Only the second one is used by the algorithms.
 
 What happens: the intruder starts outside the fence at (30.5, 27.2) after
 `start_delay` seconds, crosses the north breach and walks to the depot

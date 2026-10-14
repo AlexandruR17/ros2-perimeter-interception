@@ -48,6 +48,9 @@ def generate_launch_description() -> LaunchDescription:
              parameters=[viz_params, {'aerial_variant': LaunchConfiguration('world_variant')}]),
         Node(package='perimeter_defense_viz', executable='fleet_markers', name='fleet_markers',
              parameters=[viz_params, {'use_sim_time': True}]),
+        # Exercise truth overlay (where the intruder really is), for the operator only.
+        Node(package='perimeter_defense_sim', executable='truth_markers', name='truth_markers',
+             parameters=[{'use_sim_time': True, 'actors': ['intruder1']}]),
         Node(package='rviz2', executable='rviz2', name='rviz2',
              arguments=['-d', os.path.join(bringup, 'rviz', 'fob3.rviz')],
              parameters=[{'use_sim_time': True}],
