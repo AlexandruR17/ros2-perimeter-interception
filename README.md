@@ -197,7 +197,25 @@ python3 -m pytest perimeter_defense_world/test
 ros2 launch perimeter_defense_bringup m2_track.launch.py                 # west route, LUP-2
 ros2 launch perimeter_defense_bringup m2_track.launch.py route:=east
 ros2 launch perimeter_defense_bringup m2_track.launch.py headless:=true  # RViz only, lighter
+ros2 launch perimeter_defense_bringup m2_track.launch.py headless:=true quality:=low  # laptops
 ```
+
+### Laptops with integrated or software graphics
+
+`quality:=low` (all launch files) loads `fob3_<variant>_lite.sdf`: no shadows
+and no decorative tree rows outside the fence (more than half of the visuals).
+Sensors, collisions, physics and algorithms are unchanged. Together with
+`headless:=true` (no Gazebo GUI, RViz only) this is the lightest setup.
+Check the real-time factor while the simulation runs:
+
+```bash
+gz topic -e -t /stats -n 3 | grep real_time_factor
+```
+
+All timings (intruder `start_delay`, tracker timeouts) are in simulation time,
+so with a real-time factor of 0.3 a 15 s delay takes about 50 s on the wall
+clock. The intruder publishes `waiting` on `/sim/actors/<name>/state` until it
+starts walking.
 
 RViz shows two layers for the intruder: the white ring labelled
 `EX INTRUDER1 <state>` with a dotted trail is the exercise truth (where the

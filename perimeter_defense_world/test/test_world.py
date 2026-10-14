@@ -13,8 +13,19 @@ ZONES = os.path.join(PKG, 'config', 'zones.yaml')
 def test_committed_worlds_up_to_date():
     layout = load_layout(ZONES)
     for night, suffix in ((False, 'day'), (True, 'night')):
-        with open(os.path.join(PKG, 'worlds', f'fob3_{suffix}.sdf'), encoding='utf-8') as f:
-            assert f.read() == world_sdf(layout, night), f'fob3_{suffix}.sdf is stale'
+        for lite in (False, True):
+            name = f'fob3_{suffix}{"_lite" if lite else ""}.sdf'
+            with open(os.path.join(PKG, 'worlds', name), encoding='utf-8') as f:
+                assert f.read() == world_sdf(layout, night, lite=lite), f'{name} is stale'
+
+
+def test_lite_world_keeps_everything_the_sensors_see():
+    layout = load_layout(ZONES)
+    full, lite = ET.fromstring(world_sdf(layout)), ET.fromstring(world_sdf(layout, lite=True))
+    names = lambda root: {m.get('name') for m in root.iter('model')}   # noqa: E731
+    assert names(full) - names(lite) == {'windbreaks'}
+    assert lite.find('world/scene/shadows').text == 'false'
+    assert len(list(full.iter('collision'))) == len(list(lite.iter('collision')))
 
 
 def test_world_is_valid_xml_with_all_models():

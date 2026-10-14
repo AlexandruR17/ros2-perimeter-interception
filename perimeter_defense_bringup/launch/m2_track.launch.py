@@ -27,6 +27,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('world_variant', default_value='day'),
         DeclareLaunchArgument('headless', default_value='false'),
+        DeclareLaunchArgument('quality', default_value='high', description='high or low'),
         DeclareLaunchArgument('enable_camera', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='true'),
         DeclareLaunchArgument('route', default_value='west', description='west or east'),
@@ -35,6 +36,7 @@ def generate_launch_description() -> LaunchDescription:
                               description='s before the intruder starts walking'),
         include('world.launch.py', {'world_variant': LaunchConfiguration('world_variant'),
                                     'headless': LaunchConfiguration('headless'),
+                                    'quality': LaunchConfiguration('quality'),
                                     'actors': 'intruder1:north_breach'}),
         TimerAction(period=3.0, actions=[
             include('robot.launch.py', {'robot': LaunchConfiguration('robot'),

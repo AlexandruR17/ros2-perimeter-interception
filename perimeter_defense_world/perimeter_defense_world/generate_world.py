@@ -321,18 +321,19 @@ def windbreak_model(layout: BaseLayout) -> str:
             f'<link name="link">{"".join(parts)}</link></model>')
 
 
-def lighting(layout: BaseLayout, night: bool) -> str:
+def lighting(layout: BaseLayout, night: bool, shadows: bool = True) -> str:
+    sh = 'true' if shadows else 'false'
     if not night:
         return (
             '<scene><ambient>0.55 0.55 0.55 1</ambient><background>0.62 0.72 0.82 1</background>'
-            '<shadows>true</shadows><grid>false</grid></scene>'
-            '<light type="directional" name="sun"><cast_shadows>true</cast_shadows>'
+            f'<shadows>{sh}</shadows><grid>false</grid></scene>'
+            f'<light type="directional" name="sun"><cast_shadows>{sh}</cast_shadows>'
             '<pose>0 0 30 0 0 0</pose><diffuse>0.95 0.92 0.85 1</diffuse>'
             '<specular>0.3 0.3 0.3 1</specular><direction>-0.25 0.2 -0.95</direction></light>')
     # Night: weak moonlight plus flood lights on the buildings and the depot.
     parts = [
         '<scene><ambient>0.06 0.06 0.09 1</ambient><background>0.01 0.01 0.03 1</background>'
-        '<shadows>true</shadows><grid>false</grid></scene>',
+        f'<shadows>{sh}</shadows><grid>false</grid></scene>',
         '<light type="directional" name="moon"><cast_shadows>false</cast_shadows>'
         '<pose>0 0 30 0 0 0</pose><diffuse>0.10 0.11 0.16 1</diffuse>'
         '<specular>0.02 0.02 0.02 1</specular><direction>0.3 -0.4 -0.86</direction></light>',
@@ -350,12 +351,15 @@ def lighting(layout: BaseLayout, night: bool) -> str:
     return ''.join(parts)
 
 
-def world_sdf(layout: BaseLayout, night: bool = False, name: str = 'fob3') -> str:
+def world_sdf(layout: BaseLayout, night: bool = False, name: str = 'fob3', lite: bool = False) -> str:
+    """World SDF. lite drops shadows and the decorative tree rows outside the
+    fence (more than half of the visuals) for laptops with integrated or
+    software rendering; sensors, collisions and physics are identical."""
     models = [ground_model(layout), fence_model(layout)]
     models += [building_model(b) for b in layout.buildings]
     models += [prop_model(p) for p in layout.props]
     models += [breach_sensor_model(layout, br) for br in layout.breaches]
-    trees = windbreak_model(layout)
+    trees = '' if lite else windbreak_model(layout)
     if trees:
         models.append(trees)
     body = '\n    '.join(models)
@@ -375,7 +379,7 @@ def world_sdf(layout: BaseLayout, night: bool = False, name: str = 'fob3') -> st
       <render_engine>ogre2</render_engine>
     </plugin>
     <gravity>0 0 -9.81</gravity>
-    {lighting(layout, night)}
+    {lighting(layout, night, shadows=not lite)}
     {body}
   </world>
 </sdf>
@@ -386,10 +390,11 @@ def generate(layout: BaseLayout, world_dir: str, texture_dir: Optional[str]) -> 
     os.makedirs(world_dir, exist_ok=True)
     written = []
     for night, suffix in ((False, 'day'), (True, 'night')):
-        path = os.path.join(world_dir, f'fob3_{suffix}.sdf')
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(world_sdf(layout, night))
-        written.append(path)
+        for lite in (False, True):
+            path = os.path.join(world_dir, f'fob3_{suffix}{"_lite" if lite else ""}.sdf')
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(world_sdf(layout, night, lite=lite))
+            written.append(path)
     if texture_dir:
         write_textures(layout, texture_dir)
         written.append(texture_dir)

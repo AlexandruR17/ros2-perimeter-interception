@@ -68,6 +68,7 @@ class IntruderControllerNode(Node):
         self.state = 'waiting'
         self.running = False
         self.t0: Optional[float] = None
+        self.waiting_logged = False
 
         self.cmd_pub = self.create_publisher(Vector3, f'/actor/{self.actor}/cmd_vel', 10)
         self.state_pub = self.create_publisher(String, f'/sim/actors/{self.actor}/state', 10)
@@ -127,6 +128,14 @@ class IntruderControllerNode(Node):
             self.t0 = now
         if self.pose is None or now - self.t0 < self.start_delay:
             self.send(0.0, 0.0)
+            # Publish the state while waiting too, so a stalled start is visible.
+            self.state_pub.publish(String(data='waiting'))
+            if not self.waiting_logged and now - self.t0 > 2.0:
+                self.waiting_logged = True
+                left = max(0.0, self.start_delay - (now - self.t0))
+                self.get_logger().info(
+                    f'{self.actor}: waiting, actor pose {"ok" if self.pose else "MISSING"}, '
+                    f'starts in {left:.1f} s of simulation time')
             return
         if self.state in ('captured', 'reached_target'):
             self.send(0.0, 0.0)

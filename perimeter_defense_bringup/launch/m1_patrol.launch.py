@@ -18,7 +18,8 @@ def generate_launch_description() -> LaunchDescription:
     world = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'world.launch.py')),
         launch_arguments={'world_variant': LaunchConfiguration('world_variant'),
-                          'headless': LaunchConfiguration('headless')}.items(),
+                          'headless': LaunchConfiguration('headless'),
+                          'quality': LaunchConfiguration('quality')}.items(),
     )
     robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(launch_dir, 'robot.launch.py')),
@@ -49,6 +50,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('world_variant', default_value='day'),
         DeclareLaunchArgument('headless', default_value='false'),
+        DeclareLaunchArgument('quality', default_value='high', description='high or low'),
         DeclareLaunchArgument('enable_camera', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='true'),
         DeclareLaunchArgument('start_patrol', default_value='true'),

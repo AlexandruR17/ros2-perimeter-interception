@@ -29,7 +29,8 @@ def _gazebo(context, *args, **kwargs):
     world_pkg = get_package_share_directory('perimeter_defense_world')
     variant = LaunchConfiguration('world_variant').perform(context)
     headless = LaunchConfiguration('headless').perform(context).lower() == 'true'
-    world = os.path.join(world_pkg, 'worlds', f'fob3_{variant}.sdf')
+    lite = LaunchConfiguration('quality').perform(context).lower() == 'low'
+    world = os.path.join(world_pkg, 'worlds', f'fob3_{variant}{"_lite" if lite else ""}.sdf')
     actors = _actors_sdf(LaunchConfiguration('actors').perform(context))
     if actors:
         # Actors are part of the world file: actors spawned while the sensors'
@@ -89,6 +90,9 @@ def generate_launch_description() -> LaunchDescription:
                               description='day or night'),
         DeclareLaunchArgument('headless', default_value='false',
                               description='run the Gazebo server without GUI'),
+        DeclareLaunchArgument('quality', default_value='high',
+                              description='high, or low for integrated/software GPUs '
+                                          '(no shadows, no tree rows; same sensors and physics)'),
         DeclareLaunchArgument('actors', default_value='',
                               description='scenario actors, "name:spawn,name:spawn"'),
         AppendEnvironmentVariable('GZ_SIM_RESOURCE_PATH', os.path.join(world_pkg, 'models')),
