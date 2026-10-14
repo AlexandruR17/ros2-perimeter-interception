@@ -29,7 +29,7 @@ class DetectorParams:
     max_width: float = 0.9
     static_margin: float = 0.35         # returns this close to the static map are walls ...
     static_margin_per_m: float = 0.035  # ... plus this much per metre of range (heading error)
-    robot_exclusion: float = 0.6        # returns this close to an own robot are that robot
+    robot_exclusion: float = 1.0        # returns this close to an own robot are that robot
     centroid_offset: float = 0.1        # lidar sees the near surface, shift to body centre
 
 

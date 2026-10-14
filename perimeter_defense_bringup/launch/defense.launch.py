@@ -22,6 +22,7 @@ def _launch(context, *args, **kwargs):
         node('fence_sensor'),
         node('person_detector', {'robots': robots}),
         node('tracker'),
+        node('iff'),
         node('interceptor_allocator', {'robots': robots, 'mode': mode}),
     ]
 

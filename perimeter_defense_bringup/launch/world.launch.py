@@ -49,14 +49,23 @@ def _gazebo(context, *args, **kwargs):
 
 
 def _actors_sdf(spec: str) -> str:
-    """'name:spawn,name:spawn' -> actor SDF elements at the given intruder spawns."""
+    """'name:spawn,name:spawn' -> actor SDF elements.
+
+    spawn is a key of intruder_spawns (facing the objective), or 'soldier' for
+    a soldier of zones.yaml (at the start of his route, facing along it).
+    """
     layout = load_layout()
     tx, ty = layout.objective_target
     out = []
     for item in [s for s in spec.split(',') if s.strip()]:
         name, spawn = item.strip().split(':')
-        x, y = layout.intruder_spawns[spawn]
-        sdf = actor_sdf(name, x, y, math.atan2(ty - y, tx - x))
+        if spawn == 'soldier':
+            route = layout.soldiers[name].route
+            (x, y), (nx, ny) = route[0], route[1]
+            sdf = actor_sdf(name, x, y, math.atan2(ny - y, nx - x))
+        else:
+            x, y = layout.intruder_spawns[spawn]
+            sdf = actor_sdf(name, x, y, math.atan2(ty - y, tx - x))
         out.append(sdf.split('<sdf version="1.9">')[1].replace('</sdf>', '').strip())
     return '\n'.join(out)
 

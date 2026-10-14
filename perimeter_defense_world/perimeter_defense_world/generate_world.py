@@ -34,14 +34,17 @@ BUILDING_TEXTURE = {
     'plaster_cream': 'plaster_cream', 'plaster_ochre': 'plaster_ochre',
     'hangar_arch': 'hangar_metal',
     'concrete': 'concrete', 'metal': 'metal', 'container_green': 'container_green',
-    'container_tan': 'container_tan', 'bunker': 'bunker',
+    'container_tan': 'container_tan', 'bunker': 'bunker', 'detention': 'concrete',
 }
 PROP_TEXTURE = {'sandbags': 'sandbags', 'vehicle': 'vehicle', 'tower': 'tower', 'hesco': 'hesco'}
 # Roofs: textured for containers and metal buildings, tinted concrete otherwise.
 ROOF_TEXTURE = {'metal': 'metal', 'container_green': 'container_green',
                 'container_tan': 'container_tan', 'bunker': 'bunker_roof'}
 ROOF_COLOR = {'concrete': '0.2 0.22 0.15 1', 'metal': '0.85 0.85 0.85 1',
-              'container_green': '1 1 1 1', 'container_tan': '1 1 1 1', 'bunker': '0.8 0.8 0.75 1'}
+              'container_green': '1 1 1 1', 'container_tan': '1 1 1 1', 'bunker': '0.8 0.8 0.75 1',
+              'detention': '0.30 0.32 0.30 1'}
+# Buildings with the door on the north face (they face the base interior).
+DOOR_NORTH = ('bunker', 'detention')
 
 
 def _material(texture: Optional[str], color: str = '1 1 1 1', roughness: float = 0.9,
@@ -121,10 +124,18 @@ def building_model(b: Rect) -> str:
                 'roof', f'0 0 {b.height + 0.06:.3f} 0 0 0', f'{sx + 0.2:.3f} {sy + 0.2:.3f} 0.12',
                 _material(ROOF_TEXTURE.get(b.kind), ROOF_COLOR.get(b.kind, '0.4 0.4 0.38 1')),
                 collision=False))
-        # Door on the south face (north face for the depot, which faces the target point).
-        door_y = (sy / 2 + 0.03) if b.kind == 'bunker' else -(sy / 2 + 0.03)
+        # Door on the south face (north face for the depot and the detention building).
+        door_y = (sy / 2 + 0.03) if b.kind in DOOR_NORTH else -(sy / 2 + 0.03)
+        door_color = '0.25 0.27 0.30 1' if b.kind == 'detention' else '0.30 0.24 0.18 1'
         parts.append(_box_link('door', f'0 {door_y:.3f} 1.1 0 0 0', '1.6 0.06 2.2',
-                               _material(None, '0.30 0.24 0.18 1'), collision=False))
+                               _material(None, door_color), collision=False))
+        if b.kind == 'detention':
+            # Barred windows on the long faces.
+            for side in (-1, 1):
+                for k in (-1, 1):
+                    parts.append(_box_link(
+                        f'window_{side}_{k}', f'{side * (sx / 2 + 0.02):.3f} {k * sy / 4:.3f} 2.0 0 0 0',
+                        '0.04 0.7 0.5', _material(None, '0.08 0.08 0.08 1'), collision=False))
     return (f'<model name="{b.name}"><static>true</static><pose>{cx:.3f} {cy:.3f} 0 0 0 0</pose>'
             f'<link name="link">{"".join(parts)}</link></model>')
 

@@ -48,6 +48,14 @@ Visualization Manager:
         Reliability Policy: Reliable
         Depth: 5
     - Class: rviz_default_plugins/MarkerArray
+      Name: Status board
+      Enabled: true
+      Topic:
+        Value: /perimeter/status_board
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+        Depth: 5
+    - Class: rviz_default_plugins/MarkerArray
       Name: Threats
       Enabled: true
       Topic:
@@ -166,9 +174,9 @@ Visualization Manager:
     Current:
       Class: rviz_default_plugins/TopDownOrtho
       Name: Current View
-      X: 20
-      Y: 14
-      Scale: 22
+      X: 28.5
+      Y: 13
+      Scale: 18
       Angle: 0
 Window Geometry:
   Height: 900

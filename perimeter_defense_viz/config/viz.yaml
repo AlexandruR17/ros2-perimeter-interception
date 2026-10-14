@@ -23,3 +23,13 @@ fleet_markers:
     heading_length: 2.5          # m
     sensor_range: 10.0           # m, detection ring
     friendly_color: [0.25, 0.60, 1.00, 1.0]
+
+status_board:
+  ros__parameters:
+    origin: [40.5, 32.0]         # m, top-left corner of the board, east of the base
+    width: 16.0                  # m
+    text_height: 0.7             # m
+    line_spacing: 0.95           # m
+    max_contacts: 6              # most recent contacts shown
+    rate: 2.0                    # Hz
+    transponder_timeout: 3.0     # s without a fix -> soldier NO SIGNAL

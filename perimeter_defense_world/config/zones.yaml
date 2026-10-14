@@ -39,13 +39,13 @@ buildings:
   - {name: container1, label: "Container",  min: [15.0, 8.0],  max: [17.0, 13.0], height: 2.6, style: container_green}
   - {name: container2, label: "Container",  min: [25.0, 6.0],  max: [27.0, 12.0], height: 2.6, style: container_tan}
   - {name: depot,      label: "Ammo depot", min: [18.0, 4.0],  max: [23.0, 8.0],  height: 3.0, style: bunker}
+  - {name: detention,  label: "Detention",  min: [32.6, 6.6],  max: [35.2, 11.2], height: 3.0, style: detention}
 
 # Smaller static props. All of them are drawn into the occupancy map.
 props:
   - {name: sandbags_w,  type: sandbags, min: [18.0, 8.8],  max: [19.3, 9.3],  height: 0.8}
   - {name: sandbags_e,  type: sandbags, min: [21.7, 8.8],  max: [23.0, 9.3],  height: 0.8}
   - {name: vehicle_1,   type: vehicle,  min: [30.2, 6.5],  max: [32.4, 11.3], height: 1.9}
-  - {name: vehicle_2,   type: vehicle,  min: [32.9, 6.5],  max: [35.1, 11.3], height: 1.9}
   - {name: tower_sw,    type: tower,    min: [2.6, 2.6],   max: [3.4, 3.4],   height: 4.5}
   - {name: tower_ne,    type: tower,    min: [36.7, 24.7], max: [37.5, 25.5], height: 4.5}
   - {name: hesco_depot, type: hesco,    min: [17.2, 4.2],  max: [17.8, 8.2],  height: 1.4}
@@ -76,6 +76,23 @@ authorized_zones:
     polygon: [[3.5, 3.5], [14.0, 3.5], [14.0, 25.0], [3.5, 25.0]]
   - name: hangar_area
     polygon: [[13.5, 14.5], [25.5, 14.5], [25.5, 25.0], [13.5, 25.0]]
+  - name: detention_area
+    polygon: [[29.5, 5.8], [36.5, 5.8], [36.5, 13.4], [29.5, 13.4]]
+
+# Captured intruders are escorted by a soldier to the detention building:
+# the soldier stops at the entry, the detainee walks into the cell.
+detention:
+  building: detention
+  entry: [33.9, 12.1]
+  cell: [33.9, 8.9]
+
+# Own soldiers on foot. They walk their route in a loop, carry a transponder,
+# report intruders they see by radio and escort captured intruders to the
+# detention building. They cannot stop an intruder themselves.
+soldiers:
+  soldier1: {callsign: "SLD-1", route: [[4.0, 4.2], [12.0, 4.2], [12.0, 13.8], [4.0, 13.8]]}
+  soldier2: {callsign: "SLD-2", route: [[15.0, 15.2], [25.0, 15.2], [25.0, 24.5], [15.0, 24.5]]}
+  soldier3: {callsign: "SLD-3", route: [[30.2, 12.6], [35.4, 12.6]]}
 
 patrol_routes:
   lup1: [[3.5, 24.5], [14.0, 24.5], [13.5, 15.0], [3.5, 15.0]]

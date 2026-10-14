@@ -67,6 +67,24 @@ class Breach:
         return (fence_max[0], mid)
 
 
+@dataclass(frozen=True)
+class Soldier:
+    """Own soldier on foot: call sign and patrol loop."""
+
+    name: str
+    callsign: str
+    route: Tuple[Point, ...]
+
+
+@dataclass(frozen=True)
+class Detention:
+    """Detention building: where the escort stops and where the detainee stays."""
+
+    building: str
+    entry: Point
+    cell: Point
+
+
 @dataclass
 class BaseLayout:
     width: float
@@ -88,6 +106,8 @@ class BaseLayout:
     patrol_routes: Dict[str, List[Point]]
     intruder_spawns: Dict[str, Point]
     helipad: Optional[Tuple[Point, float]] = None
+    soldiers: Dict[str, Soldier] = field(default_factory=dict)
+    detention: Optional[Detention] = None
     name: str = ''
     unit: str = ''
     code: str = ''
@@ -139,9 +159,36 @@ class BaseLayout:
                 return br
         return None
 
+    def in_authorized_zone(self, p: Point) -> bool:
+        return any(point_in_polygon(p, poly) for poly in self.authorized_zones.values())
+
+    def line_of_sight(self, a: Point, b: Point) -> bool:
+        """True when no building or prop blocks the straight line a-b (the fence does not)."""
+        return not any(_segment_hits_rect(a, b, r) for r in self.obstacles())
+
     def is_inside_fence(self, p: Point) -> bool:
         return (self.fence_min[0] < p[0] < self.fence_max[0]
                 and self.fence_min[1] < p[1] < self.fence_max[1])
+
+
+def _segment_hits_rect(a: Point, b: Point, r: Rect) -> bool:
+    """Liang-Barsky clipping of segment a-b against an axis-aligned rectangle."""
+    t0, t1 = 0.0, 1.0
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    for p, q in ((-dx, a[0] - r.min[0]), (dx, r.max[0] - a[0]),
+                 (-dy, a[1] - r.min[1]), (dy, r.max[1] - a[1])):
+        if p == 0.0:
+            if q < 0.0:
+                return False
+            continue
+        t = q / p
+        if p < 0.0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+        if t0 > t1:
+            return False
+    return True
 
 
 def _side_segment(horizontal: bool, anchor: Point, s0: float, s1: float) -> Segment:
@@ -212,6 +259,10 @@ def load_layout(path: Optional[str] = None) -> BaseLayout:
         patrol_routes={k: [_pt(p) for p in v] for k, v in raw['patrol_routes'].items()},
         intruder_spawns={k: _pt(v) for k, v in raw.get('intruder_spawns', {}).items()},
         helipad=_helipad(raw),
+        soldiers={k: Soldier(k, str(v['callsign']), tuple(_pt(p) for p in v['route']))
+                  for k, v in raw.get('soldiers', {}).items()},
+        detention=(Detention(str(raw['detention']['building']), _pt(raw['detention']['entry']),
+                             _pt(raw['detention']['cell'])) if 'detention' in raw else None),
         name=str(raw.get('base', {}).get('name', '')),
         unit=str(raw.get('base', {}).get('unit', '')),
         code=str(raw.get('base', {}).get('code', '')),

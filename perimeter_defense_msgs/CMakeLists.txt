@@ -18,6 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ThreatLevel.msg"
   "msg/RoleAssignment.msg"
   "msg/Transponder.msg"
+  "msg/Custody.msg"
   DEPENDENCIES builtin_interfaces geometry_msgs std_msgs
 )
 

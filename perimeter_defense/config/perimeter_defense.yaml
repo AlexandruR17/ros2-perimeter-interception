@@ -19,7 +19,7 @@ person_detector:
     max_width: 0.9
     static_margin: 0.35       # m, returns closer to the static map are walls ...
     static_margin_per_m: 0.035  # ... plus this per metre of range (AMCL heading error)
-    robot_exclusion: 0.6      # m, returns around own robots
+    robot_exclusion: 1.0      # m, returns around own robots (body + localization error)
     centroid_offset: 0.1      # m, lidar sees the near surface of the body
 
 tracker:
@@ -35,9 +35,12 @@ tracker:
     lost_timeout: 1.5         # s without detection -> LOST (prediction continues)
     delete_after: 8.0         # s in LOST -> deleted
     lost_velocity_tau: 2.0    # s, velocity of a LOST track decays (people stop)
-    alert_timeout: 20.0       # s for a fence-only alert to be confirmed
+    alert_timeout: 20.0       # s for a fence or spot report alert to be confirmed
     max_speed: 3.5            # m/s
     neutralized_keep: 10.0
+    max_assoc_distance: 3.0   # m, detection to track, on top of the chi-square gate
+    alert_merge_radius: 8.0   # m, a hostile lidar track this close confirms an ALERT track
+    duplicate_distance: 0.7   # m, two confirmed tracks this close are merged (same person)
     prediction_horizon: 6.0   # s
     prediction_step: 0.2      # s
     obstacle_margin: 0.2      # m, prediction stops at obstacles
@@ -51,3 +54,16 @@ interceptor_allocator:
     resend_period: 0.6        # s, or if this much time passed
     standoff: 0.5             # m, goal short of the target (it is an obstacle)
     max_speed: 2.0            # m/s
+    hold_timeout: 120.0       # s a robot stays with a captured person at most
+
+iff:
+  ros__parameters:
+    rate: 2.0
+    gate: 2.0                 # m, transponder fix to track (2 sigma of a 1 m transponder)
+    min_matches: 2            # consecutive matches before a track is FRIEND
+    max_fix_age: 1.5          # s
+    friend_hold: 3.0          # s a track stays FRIEND after its last transponder match
+    hostile_after: 2.0        # s of lidar tracking without transponder -> HOSTILE
+    zone_alert_cooldown: 30.0 # s between UNAUTHORIZED_ZONE alerts of one soldier
+    zone_margin: 1.5          # m tolerated around the authorized zones (track noise)
+    return_time: 60.0         # s a soldier may stay off his zone after a detention

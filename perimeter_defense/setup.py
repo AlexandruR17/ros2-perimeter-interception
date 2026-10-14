@@ -22,6 +22,7 @@ setup(
             'fence_sensor = perimeter_defense.fence_sensor_node:main',
             'person_detector = perimeter_defense.person_detector_node:main',
             'tracker = perimeter_defense.tracker_node:main',
+            'iff = perimeter_defense.iff_node:main',
             'interceptor_allocator = perimeter_defense.interceptor_allocator_node:main',
         ],
     },

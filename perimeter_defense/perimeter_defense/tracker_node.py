@@ -2,6 +2,7 @@
 
 Inputs:  /perimeter/detections (lidar person detections, all robots fused)
          /perimeter/fence_alert (coarse fence sensor alerts)
+         /perimeter/spot_reports(soldier sightings by radio, coarse)
          /threats/neutralize    (track id reached by a robot)
          /threats/classification(track id + class, from the IFF node)
 Outputs: /threats/tracks           TrackArray at 10 Hz
@@ -53,14 +54,13 @@ class TrackerNode(Node):
         self.margin = float(self.get_parameter('obstacle_margin').value)
         self.tracker = MultiTargetTracker(params)
         self.static_map: Optional[StaticMap] = None
-        # Classification is owned by the IFF node; the tracker only stores it.
-        self.classes: Dict[int, Tuple[int, str]] = {}
 
         map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
         self.create_subscription(OccupancyGrid, '/map', self.on_map, map_qos)
         self.create_subscription(DetectionArray, '/perimeter/detections', self.on_detections, 10)
         self.create_subscription(Alert, '/perimeter/fence_alert', self.on_fence_alert, 10)
+        self.create_subscription(Alert, '/perimeter/spot_reports', self.on_spot_report, 10)
         self.create_subscription(UInt32, '/threats/neutralize', self.on_neutralize, 10)
         self.create_subscription(TrackArray, '/threats/classification', self.on_classification, 10)
         self.track_pub = self.create_publisher(TrackArray, '/threats/tracks', 10)
@@ -87,13 +87,25 @@ class TrackerNode(Node):
                                               to_sec(msg.header.stamp))
         self.get_logger().info(f'fence alert from {msg.source} -> track T{tid}')
 
+    def on_spot_report(self, msg: Alert) -> None:
+        if msg.type != Alert.TYPE_SPOT_REPORT:
+            return
+        tid = self.tracker.update_coarse((msg.position.x, msg.position.y),
+                                         max(float(msg.uncertainty), 0.5),
+                                         to_sec(msg.header.stamp))
+        self.get_logger().info(f'spot report from {msg.source} -> track T{tid}')
+
     def on_neutralize(self, msg: UInt32) -> None:
         if self.tracker.neutralize(int(msg.data), self.now_s()):
             self.get_logger().info(f'track T{msg.data} neutralized')
 
     def on_classification(self, msg: TrackArray) -> None:
+        # Classification is owned by the IFF node; the tracker stores it, and a
+        # HOSTILE lidar track confirms a pending fence or spot report alert.
         for t in msg.tracks:
-            self.classes[int(t.id)] = (int(t.classification), t.transponder_id)
+            tid = self.tracker.set_classification(int(t.id), int(t.classification), t.transponder_id)
+            if tid != t.id:
+                self.get_logger().info(f'hostile T{t.id} confirms alert T{tid}')
 
     def blocked(self, x: float, y: float) -> bool:
         if self.static_map is None:
@@ -104,8 +116,7 @@ class TrackerNode(Node):
         m = Track()
         m.id = tr.id
         m.state = max(tr.state, 0)
-        cls, tid = self.classes.get(tr.id, (Track.CLASS_UNKNOWN, ''))
-        m.classification, m.transponder_id = cls, tid
+        m.classification, m.transponder_id = tr.classification, tr.transponder_id
         m.position.x, m.position.y = tr.kf.position
         m.velocity.x, m.velocity.y = tr.kf.velocity
         m.covariance = [float(v) for v in tr.kf.P.flatten()]
@@ -138,9 +149,6 @@ class TrackerNode(Node):
         self.path_pub.publish(paths)
         self.marker_pub.publish(MarkerArray(markers=all_track_markers(
             tracks.tracks, path_points, stamp, self.frame)))
-        # Classifications of deleted tracks are no longer needed.
-        live = {t.id for t in tracks.tracks}
-        self.classes = {k: v for k, v in self.classes.items() if k in live}
 
 
 def main(args=None) -> None:

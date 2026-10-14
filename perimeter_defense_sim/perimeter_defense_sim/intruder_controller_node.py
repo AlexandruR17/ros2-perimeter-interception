@@ -4,7 +4,10 @@ Walks from its spawn point outside the fence through a breach and along the
 west or east route to the ammunition depot entrance, following an A* path on
 the base map. It switches to running once the defense has a track on it
 (within detect_radius of its true position), stops when a robot gets within
-capture_distance (surrender) or when it reaches the target.
+capture_distance (surrender) or when it reaches the target. A captured
+intruder waits; when a soldier takes him over (/sim/actors/<name>/escort
+carries the soldier's actor name) he walks behind the soldier, and on the
+command "cell" he walks into the detention cell and stays there (detained).
 
 Uses the actor's true pose (/sim/actors/<name>/pose) and the robots' true
 poses (/sim/ground_truth/<robot>/pose): this is the scenario script, not part
@@ -45,6 +48,7 @@ class IntruderControllerNode(Node):
         self.declare_parameter('target_radius', 0.9)
         self.declare_parameter('robots', ['lup1', 'lup2', 'lup3'])
         self.declare_parameter('lookahead', 0.6)
+        self.declare_parameter('follow_distance', 1.2)    # m behind the escorting soldier
 
         g = lambda n: self.get_parameter(n).value   # noqa: E731
         self.actor: str = g('actor')
@@ -58,6 +62,10 @@ class IntruderControllerNode(Node):
         self.target_r = float(g('target_radius'))
         self.robots: List[str] = list(g('robots'))
         self.lookahead = float(g('lookahead'))
+        self.follow_d = float(g('follow_distance'))
+        self.cell: Optional[XY] = layout.detention.cell if layout.detention else None
+        self.escort: str = ''
+        self.escort_pose: Optional[XY] = None
 
         spawn = layout.intruder_spawns[g('spawn')]
         waypoints = [spawn] + self.route_waypoints(layout, g('spawn'), g('route')) + [self.target]
@@ -77,6 +85,7 @@ class IntruderControllerNode(Node):
             self.create_subscription(Pose, f'/sim/ground_truth/{robot}/pose',
                                      lambda m, r=robot: self.on_robot_pose(r, m), 10)
         self.create_subscription(TrackArray, '/threats/tracks', self.on_tracks, 10)
+        self.create_subscription(String, f'/sim/actors/{self.actor}/escort', self.on_escort, 10)
         self.create_timer(0.05, self.tick)
         length = sum(math.dist(a, b) for a, b in zip(self.path, self.path[1:]))
         self.get_logger().info(f'{self.actor}: route {g("route")} via {g("spawn")}, {length:.1f} m')
@@ -111,6 +120,21 @@ class IntruderControllerNode(Node):
                 self.running = True
                 self.get_logger().warn(f'{self.actor}: detected, running')
 
+    def on_escort(self, msg: String) -> None:
+        if self.state not in ('captured', 'escorted'):
+            return
+        if msg.data == 'cell':
+            if self.cell is not None:
+                self.set_state('to_cell')
+            return
+        if msg.data and msg.data != self.escort:
+            self.escort = msg.data
+            self.create_subscription(Pose, f'/sim/actors/{msg.data}/pose', self.on_escort_pose, 10)
+            self.set_state('escorted')
+
+    def on_escort_pose(self, msg: Pose) -> None:
+        self.escort_pose = (msg.position.x, msg.position.y)
+
     def set_state(self, state: str) -> None:
         if state != self.state:
             self.state = state
@@ -137,15 +161,31 @@ class IntruderControllerNode(Node):
                     f'{self.actor}: waiting, actor pose {"ok" if self.pose else "MISSING"}, '
                     f'starts in {left:.1f} s of simulation time')
             return
-        if self.state in ('captured', 'reached_target'):
+        if self.state == 'escorted':
+            self.follow_escort()
+            self.set_state(self.state)
+            return
+        if self.state == 'to_cell':
+            d = math.dist(self.pose, self.cell)
+            if d < 0.3:
+                self.set_state('detained')
+                self.send(0.0, 0.0)
+            else:
+                self.send((self.cell[0] - self.pose[0]) / d * 0.8, (self.cell[1] - self.pose[1]) / d * 0.8)
+                self.set_state(self.state)
+            return
+        if self.state in ('captured', 'detained'):
             self.send(0.0, 0.0)
             self.set_state(self.state)
             return
         if any(math.dist(self.pose, p) <= self.capture_d for p in self.robot_poses.values()):
+            # Also after reaching the target (the attack succeeded, he surrenders).
+            if self.state == 'reached_target':
+                self.get_logger().warn(f'{self.actor}: captured at the target')
             self.set_state('captured')
             self.send(0.0, 0.0)
             return
-        if math.dist(self.pose, self.target) <= self.target_r:
+        if self.state == 'reached_target' or math.dist(self.pose, self.target) <= self.target_r:
             self.set_state('reached_target')
             self.send(0.0, 0.0)
             return
@@ -159,6 +199,18 @@ class IntruderControllerNode(Node):
         speed = self.run if self.running else self.walk
         self.send(dx / d * speed, dy / d * speed)
         self.set_state('running' if self.running else 'walking')
+
+    def follow_escort(self) -> None:
+        if self.escort_pose is None:
+            self.send(0.0, 0.0)
+            return
+        dx, dy = self.escort_pose[0] - self.pose[0], self.escort_pose[1] - self.pose[1]
+        d = math.hypot(dx, dy)
+        if d <= self.follow_d:
+            self.send(0.0, 0.0)
+            return
+        speed = min(1.6, (d - self.follow_d) * 2.0)
+        self.send(dx / d * speed, dy / d * speed)
 
 
 def main(args=None) -> None:

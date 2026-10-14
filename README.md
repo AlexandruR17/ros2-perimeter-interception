@@ -22,10 +22,10 @@ physical security side.
 | Milestone | Content | Status |
 |---|---|---|
 | M1 | Realistic world, generated Nav2 maps, one UGV with Nav2 + AMCL patrolling waypoints | done |
-| M2 | Intruder actor, fence sensor, lidar person detector, tracker, one robot following the track | done |
+| M2 | Intruder actor, fence sensor, lidar person detector, tracker, one robot following the track; soldiers on foot (spot reports, escort to detention), IFF, status board | done |
 | M3 | Predictive interception with one robot, naive mode, RViz markers | planned |
 | M4 | Three namespaced robots, role allocation, scenario S1 | planned |
-| M5 | Own personnel, transponders, IFF (scenario S2) | planned |
+| M5 | Own personnel in authorized zones, threat assessor, false alarm scenario S2 (soldiers, transponders and IFF already in M2) | planned |
 | M6 | Multi-target tracking, two intruders, diversion (S3, S4) | planned |
 | M7 | Batch evaluation, CSV and plots | planned |
 | M8 | C2 web dashboard via rosbridge, manual intruder control | planned |
@@ -37,7 +37,7 @@ flowchart LR
   subgraph SIM["Gazebo Harmonic (common base)"]
     W[FOB-3 world<br/>generated from zones.yaml]
     R1[LUP-1 UGV] --- R2[LUP-2 UGV] --- R3[LUP-3 UGV]
-    A[Actors: intruders,<br/>own personnel]
+    A[Actors: intruders,<br/>own soldiers]
   end
 
   subgraph BASE["Common base (ROS 2)"]
@@ -45,7 +45,7 @@ flowchart LR
     ODO[odom_noise<br/>wheel odometry drift]
     NAV[Nav2 + AMCL<br/>per robot]
     PAT[patrol]
-    ACT[actor control,<br/>transponders, teleop]
+    ACT[intruder script,<br/>soldiers: transponders,<br/>spot reports, escort]
   end
 
   subgraph MINE["Individual contribution: perimeter_defense"]
@@ -65,6 +65,8 @@ flowchart LR
   BR -- /lupN/scan --> PD
   ACT -- /transponders --> IFF
   FS -- /perimeter/fence_alert --> TR
+  ACT -- /perimeter/spot_reports --> TR
+  ACT -- /perimeter/custody --> IA
   PD -- detections --> TR
   TR -- tracks --> IFF
   IFF -- classified tracks --> IA
@@ -89,11 +91,11 @@ evaluation package for metrics.
 | `perimeter_defense_world` | `zones.yaml` (single source of truth), world generator, Nav2 map generator, top-down render, textures, actor meshes | common base |
 | `perimeter_defense_description` | LUP UGV description (Jackal-sized skid-steer, gpu_lidar, camera) | common base |
 | `perimeter_defense_bringup` | Launch files, Nav2 and fleet configuration, RViz | common base |
-| `perimeter_defense_sim` | Odometry drift, baseline patrol; later actors, transponders, manual intruder | common base |
-| `perimeter_defense_viz` | Tactical RViz overlay: aerial background, grid, fence and breaches, objective, zones, routes, fleet symbols | common base |
+| `perimeter_defense_sim` | Odometry drift, baseline patrol, scripted intruder, soldiers (transponders, spot reports, escort), exercise truth overlay; later manual intruder | common base |
+| `perimeter_defense_viz` | Tactical RViz overlay: aerial background, grid, fence and breaches, objective, zones, routes, fleet symbols, status board | common base |
 | `perimeter_defense_gz_plugins` | `ActorDriver` Gazebo system: velocity-driven animated actors (walk, run, stand) | common base |
-| `perimeter_defense_msgs` | Detection(Array), Track(Array), PredictedPath(Array), Alert, ThreatLevel, RoleAssignment, Transponder | shared |
-| `perimeter_defense` | Fence sensor processing, lidar person detection, tracking and prediction, interceptor allocation (IFF and threat assessment from M5) | **individual contribution** |
+| `perimeter_defense_msgs` | Detection(Array), Track(Array), PredictedPath(Array), Alert, ThreatLevel, RoleAssignment, Transponder, Custody | shared |
+| `perimeter_defense` | Fence sensor processing, lidar person detection, tracking and prediction, IFF, interceptor allocation (threat assessment from M5) | **individual contribution** |
 | `perimeter_defense_eval` | Headless batch runs, CSV, plots | M7 |
 | `dashboard` | C2 web interface | M8 |
 
@@ -110,18 +112,21 @@ evaluation package for metrics.
 | Nav2 (controller, planner, behaviors, bt_navigator) | /lupN | `scan`, `odom`, `/map`, `speed_limit` | `cmd_vel`, `plan` |
 | `patrol` | /lupN | `patrol_enable` | `navigate_to_pose` goals, `speed_limit` |
 | `layout_markers` | / | | `/perimeter/layout_markers` (latched) |
-| `intruder_controller` (sim) | / | `/sim/actors/<a>/pose`, `/sim/ground_truth/<r>/pose`, `/threats/tracks` | `/actor/<a>/cmd_vel` |
+| `intruder_controller` (sim) | / | `/sim/actors/<a>/pose`, `/sim/ground_truth/<r>/pose`, `/threats/tracks`, `/sim/actors/<a>/escort` | `/actor/<a>/cmd_vel`, `/sim/actors/<a>/state` |
+| `soldier_controller` (sim) | / | `/sim/actors/<s>/pose`, `/sim/actors/<a>/pose`, `/sim/actors/<a>/state`, `/threats/tracks` | `/actor/<s>/cmd_vel`, `/perimeter/transponders`, `/perimeter/spot_reports`, `/perimeter/custody`, `/sim/actors/<a>/escort` |
 | `truth_markers` (sim) | / | `/sim/actors/<a>/pose`, `/sim/actors/<a>/state` | `/sim/truth_markers` (exercise truth overlay) |
 | **`fence_sensor`** | / | `/perimeter/breach_<b>/scan` | `/perimeter/fence_alert` |
 | **`person_detector`** | / | `/lupN/scan`, `/map`, `/tf` | `/perimeter/detections` |
-| **`tracker`** | / | `/perimeter/detections`, `/perimeter/fence_alert`, `/threats/neutralize`, `/map` | `/threats/tracks` (10 Hz), `/threats/predicted_paths`, `/threats/markers` |
-| **`interceptor_allocator`** | / | `/threats/tracks`, `/tf` | `/lupN/navigate_to_pose`, `/lupN/patrol_enable`, `/lupN/speed_limit`, `/threats/neutralize`, `/fleet/roles` |
+| **`tracker`** | / | `/perimeter/detections`, `/perimeter/fence_alert`, `/perimeter/spot_reports`, `/threats/neutralize`, `/threats/classification`, `/map` | `/threats/tracks` (10 Hz), `/threats/predicted_paths`, `/threats/markers` |
+| **`iff`** | / | `/threats/tracks`, `/perimeter/transponders`, `/perimeter/custody` | `/threats/classification`, `/perimeter/alerts` |
+| **`interceptor_allocator`** | / | `/threats/tracks`, `/perimeter/custody`, `/tf` | `/lupN/navigate_to_pose`, `/lupN/patrol_enable`, `/lupN/speed_limit`, `/threats/neutralize`, `/fleet/roles` |
 
 Nodes in bold are the individual contribution. Topics under `/sim/` carry
 simulation ground truth and are only used by the scenario scripts and the
 evaluation; a unit test checks that the `perimeter_defense` package never
 references them.
 | `fleet_markers` | / | `/tf` | `/fleet/markers` |
+| `status_board` | / | `/threats/tracks`, `/perimeter/fence_alert`, `/perimeter/spot_reports`, `/fleet/roles`, `/perimeter/custody`, `/perimeter/transponders` | `/perimeter/status_board` |
 
 ## Environment
 
@@ -191,11 +196,13 @@ colcon test --packages-select perimeter_defense_world && colcon test-result --ve
 python3 -m pytest perimeter_defense_world/test
 ```
 
-## M2: intruder, fence sensor, detection, tracking, one robot following
+## M2: intruder, soldiers, detection, tracking, IFF, one robot following
 
 ```bash
-ros2 launch perimeter_defense_bringup m2_track.launch.py                 # west route, LUP-2
+ros2 launch perimeter_defense_bringup m2_track.launch.py                 # west route, LUP-2, 3 soldiers
 ros2 launch perimeter_defense_bringup m2_track.launch.py route:=east
+ros2 launch perimeter_defense_bringup m2_track.launch.py robots:=lup2,lup3
+ros2 launch perimeter_defense_bringup m2_track.launch.py soldiers:=false
 ros2 launch perimeter_defense_bringup m2_track.launch.py headless:=true  # RViz only, lighter
 ros2 launch perimeter_defense_bringup m2_track.launch.py headless:=true quality:=low  # laptops
 ```
@@ -217,27 +224,50 @@ so with a real-time factor of 0.3 a 15 s delay takes about 50 s on the wall
 clock. The intruder publishes `waiting` on `/sim/actors/<name>/state` until it
 starts walking.
 
-RViz shows two layers for the intruder: the white ring labelled
-`EX INTRUDER1 <state>` with a dotted trail is the exercise truth (where the
-actor really is, from the simulator, display "Exercise truth (sim)"); the
-coloured track (`T1 UNK ...`) is what the defense system knows from its
-sensors. Only the second one is used by the algorithms.
+RViz shows two layers for every person: the ring labelled `EX <NAME> <state>`
+with a dotted trail is the exercise truth (where the actor really is, from the
+simulator, display "Exercise truth (sim)"; white for the intruder, light blue
+for the soldiers); the coloured track (`T1 HOS ...`) is what the defense system
+knows from its sensors. Only the second one is used by the algorithms.
+
+The status board east of the base (display "Status board") lists every
+contact registered inside the perimeter, from the first report to detention:
+track id, class, status (ALERT, TRACKED, LOST, CAPTURED, ESCORTED, DETAINED,
+NO CONTACT), how it was first reported (breach sensor, soldier spot report or
+lidar), time since registration, speed, distance to the objective, the robot
+working on it and the soldier who has it in custody. Below: the robots' roles
+and the soldiers' status (patrol, reporting, on the way, escort, transponder).
 
 What happens: the intruder starts outside the fence at (30.5, 27.2) after
 `start_delay` seconds, crosses the north breach and walks to the depot
-entrance. The beam-break sensor at the breach raises
-`Breach NORTH: perimeter crossed`; the tracker creates an ALERT track at the
-breach (1.5 m uncertainty) and LUP-2 leaves its patrol to INVESTIGATE. When
-its lidar sees the intruder the track becomes TRACKED (yellow, UNK in RViz,
-with uncertainty ellipse, velocity arrow and the dotted 6 s prediction), the
-intruder starts running and LUP-2 switches to FOLLOW. A robot within 1 m of
-the track neutralizes it. In follow mode the robot often arrives too late;
-predictive interception comes in M3, the guard role in M4.
+entrance.
+- The beam-break sensor at the breach raises `Breach NORTH: perimeter crossed`;
+  the tracker creates an ALERT track at the breach (1.5 m uncertainty) and
+  LUP-2 leaves its patrol to INVESTIGATE.
+- Soldiers SLD-1..3 walk their routes. A soldier who sees the intruder (12 m,
+  line of sight, inside the fence) stops and radios a spot report (position
+  error about 1.5 m, 1 s radio delay, repeated every 4 s); the reports move the
+  ALERT track, so the robot is sent where the intruder was last seen. Soldiers
+  cannot stop the intruder.
+- The soldiers carry transponders; the IFF recognises their lidar tracks as
+  FRIEND and robots ignore them. A lidar track tracked for 2 s without a
+  transponder is HOSTILE; it confirms the ALERT track (which keeps its id),
+  the intruder starts running and the robot switches to FOLLOW.
+- A robot within 1 m captures the intruder and HOLDs there. The closest free
+  soldier comes, takes him over (custody report ESCORTING), the robot goes back
+  to patrol, the soldier escorts him to the detention building (east of the
+  vehicle park) and reports him DETAINED, then returns to his route.
+
+In follow mode with one robot the intruder often reaches the depot first (he
+is then captured there); predictive interception comes in M3, the guard role
+at the objective in M4.
 
 ```bash
 ros2 topic echo /perimeter/fence_alert
 ros2 topic echo /threats/tracks --field tracks
 ros2 topic echo /fleet/roles
+ros2 topic echo /perimeter/spot_reports
+ros2 topic echo /perimeter/custody
 python3 -m pytest src/ros2-perimeter-interception/perimeter_defense/test
 ```
 
@@ -332,6 +362,37 @@ LOST after 1.5 s without a detection and keep predicting with a decaying
 velocity. In the west-route run the track error against ground truth was
 0.1-0.45 m while the intruder was walking and running.
 
+**Soldiers and spot reports.** A spot report is a coarse measurement (about
+2 m) like the fence alert: it updates an ALERT or LOST track or creates an
+ALERT track, but it never moves a lidar track (the lidar is ten times more
+accurate) and never matches a FRIEND track.
+
+**ALERT confirmation.** An ALERT track has a coarse position and a covariance
+that grows quickly, so with the plain chi-square gate it would take over the
+lidar detections of anyone within several metres, typically a soldier. ALERT
+tracks therefore take no part in the detection association; an ALERT is
+confirmed when a lidar track within 8 m is classified HOSTILE: the ALERT track
+takes over that filter and keeps its id (and the robot assigned to it). Every
+association also has a 3 m Euclidean limit on top of the chi-square gate, and
+two lidar tracks closer than 0.7 m are merged (a LOST track predicted past a
+soldier who turned back).
+
+**IFF.** Transponder fixes (1 Hz, 1 m error) are associated one-to-one with the
+lidar tracks (Hungarian algorithm, 2 m gate, fix age compensated with the track
+velocity). A track is FRIEND after two consecutive matches, keeps it for 3 s
+after the last match and while LOST. HOSTILE needs 2 s of continuous lidar
+tracking without any match, so a short clutter track never qualifies and a
+single match (an intruder running past a soldier whose own track is not seen)
+delays the decision instead of making him a friend. A FRIEND outside the
+authorized zones (1.5 m tolerance) raises an alert, never an intercept;
+soldiers on an escort duty are exempt. Robots are only sent to ALERT tracks and
+HOSTILE tracks.
+
+**Detention.** Captured tracks keep following the detections of the person
+(escorted away), without changing state, so the escort does not create new
+tracks. Inside the detention building the person is hidden from the lidars;
+the track is deleted and the board keeps the entry as DETAINED.
+
 ## Individual contribution
 
 The individual contribution of the author is the `perimeter_defense` package:
@@ -341,13 +402,13 @@ The individual contribution of the author is the `perimeter_defense` package:
 | `fence_sensor_node` | M2 |
 | `person_detector_node` | M2 |
 | `tracker_node` (with prediction and markers) | M2 |
-| `interceptor_allocator_node` | M2 follow mode; predictive/naive in M3, roles in M4 |
-| `iff_node` | M5 |
+| `interceptor_allocator_node` | M2 follow mode and hold until custody; predictive/naive in M3, roles in M4 |
+| `iff_node` | M2 (transponders, one-to-one association, zone alerts) |
 | `threat_assessor_node` | M5 |
 
 The ROS-independent algorithms are in `perimeter_defense/core` (Kalman
 filter, association, lidar clustering, static map queries, tracker,
-prediction) with pytest unit tests in `perimeter_defense/test`.
+prediction, IFF) with pytest unit tests in `perimeter_defense/test`.
 
 The world, robot model, Nav2 configuration, simulation helpers (actors,
 transponders, odometry drift, patrol) and the bringup are the common base.

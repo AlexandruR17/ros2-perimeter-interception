@@ -25,6 +25,7 @@ setup(
             'patrol = perimeter_defense_sim.patrol_node:main',
             'intruder_controller = perimeter_defense_sim.intruder_controller_node:main',
             'truth_markers = perimeter_defense_sim.truth_markers_node:main',
+            'soldier_controller = perimeter_defense_sim.soldier_controller_node:main',
         ],
     },
 )
