@@ -66,6 +66,7 @@ def _launch_robot(context, *args, **kwargs):
     camera = LaunchConfiguration('enable_camera').perform(context).lower() == 'true'
     start_patrol = LaunchConfiguration('start_patrol').perform(context).lower() == 'true'
     zones_file = LaunchConfiguration('zones_file').perform(context)
+    patrol_route = LaunchConfiguration('patrol_route').perform(context) or robot
 
     desc_pkg = get_package_share_directory('perimeter_defense_description')
     bringup_pkg = get_package_share_directory('perimeter_defense_bringup')
@@ -155,7 +156,7 @@ def _launch_robot(context, *args, **kwargs):
     if start_patrol:
         actions.append(Node(
             package='perimeter_defense_sim', executable='patrol', namespace=robot,
-            parameters=[sim_time, {'route_name': robot, 'zones_file': zones_file,
+            parameters=[sim_time, {'route_name': patrol_route, 'zones_file': zones_file,
                                    'patrol_speed': fleet['patrol']['patrol_speed'],
                                    'retry_delay': fleet['patrol']['retry_delay']}],
             output='screen',
@@ -168,6 +169,9 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('robot', default_value='lup1', description='robot namespace'),
         DeclareLaunchArgument('enable_camera', default_value='false'),
         DeclareLaunchArgument('start_patrol', default_value='true'),
+        DeclareLaunchArgument('patrol_route', default_value='',
+                              description='patrol route in zones.yaml (default: the robot name; '
+                                          '"base" is the whole-base loop)'),
         DeclareLaunchArgument('zones_file', default_value='',
                               description='zones.yaml override (default: installed one)'),
         OpaqueFunction(function=_launch_robot),

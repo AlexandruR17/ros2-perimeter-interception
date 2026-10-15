@@ -231,7 +231,7 @@ body.night .leaflet-marker-pane, body.night .entity .sym, body.night .selection 
   background: rgba(5, 6, 5, 0.88); border: 3px solid var(--hostile); padding: 18px 10px 12px;
 }
 .umpire.good { border-color: var(--ok); }
-.umpire.blink { animation: umpire-blink 0.8s steps(2, start) 5; }
+.umpire.blink { animation: umpire-blink 0.8s steps(2, start) 3; }
 @keyframes umpire-blink { to { border-color: transparent; } }
 .umpire-tag { font-size: 13px; letter-spacing: 0.4em; color: var(--dim); }
 .umpire-title { font-size: 64px; font-weight: 600; letter-spacing: 0.12em; color: var(--hostile); line-height: 1.1; }

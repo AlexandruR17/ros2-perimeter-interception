@@ -85,11 +85,14 @@ class DashboardServer(Node):
         self.declare_parameter('port', 8080)
         self.declare_parameter('rosbridge_port', 9090)
         self.declare_parameter('robots', ['lup1', 'lup2', 'lup3'])
+        self.declare_parameter('routes', '')     # patrol routes drawn, '' = the robots' own
         port = int(self.get_parameter('port').value)
         layout = load_layout(self.get_parameter('zones_file').value or None)
-        config = json.dumps(layout_config(layout, list(self.get_parameter('robots').value),
-                                          int(self.get_parameter('rosbridge_port').value)),
-                            ensure_ascii=False).encode('utf-8')
+        cfg = layout_config(layout, list(self.get_parameter('robots').value),
+                            int(self.get_parameter('rosbridge_port').value))
+        shown = [r for r in str(self.get_parameter('routes').value).split(',') if r] or cfg['robots']
+        cfg['routes'] = {k: v for k, v in cfg['routes'].items() if k in shown}
+        config = json.dumps(cfg, ensure_ascii=False).encode('utf-8')
         web_dir = os.path.join(get_package_share_directory('perimeter_defense_dashboard'), 'web')
         maps_dir = os.path.join(get_package_share_directory('perimeter_defense_world'), 'maps')
         handler = partial(_Handler, web_dir=web_dir, maps_dir=maps_dir, config=config)

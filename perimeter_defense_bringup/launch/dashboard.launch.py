@@ -31,7 +31,7 @@ def _launch(context, *args, **kwargs):
         Node(package='perimeter_defense_dashboard', executable='c2_state', name='c2_state',
              parameters=[params, {'use_sim_time': True, 'robots': robots}], output='screen'),
         Node(package='perimeter_defense_dashboard', executable='dashboard_server', name='dashboard_server',
-             parameters=[params, {'robots': robots, 'port': int(g('port')),
+             parameters=[params, {'robots': robots, 'routes': g('routes'), 'port': int(g('port')),
                                   'rosbridge_port': int(g('rosbridge_port'))}], output='screen'),
     ]
 
@@ -40,6 +40,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robots', default_value='lup1,lup2,lup3'),
         DeclareLaunchArgument('port', default_value='8080', description='web page port'),
+        DeclareLaunchArgument('routes', default_value='', description="patrol routes drawn, '' = robots'"),
         DeclareLaunchArgument('rosbridge_port', default_value='9090'),
         OpaqueFunction(function=_launch),
     ])

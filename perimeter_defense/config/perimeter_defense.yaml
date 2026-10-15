@@ -64,6 +64,8 @@ interceptor_allocator:
     escort_speed: 0.6         # m/s, walking pace of the detainee
     escort_wait_distance: 3.0 # m, the robot waits when the detainee falls behind
     handover_timeout: 20.0    # s at the detention door at most
+    inside_margin: 0.6        # m beyond the fence still counted as inside (people in a breach)
+    goal_clearance: 0.8       # m, robot goals are kept this far inside the fence
 
 iff:
   ros__parameters:

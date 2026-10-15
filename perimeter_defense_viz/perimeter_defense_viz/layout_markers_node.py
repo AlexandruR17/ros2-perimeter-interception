@@ -37,6 +37,7 @@ class LayoutMarkersNode(Node):
         self.declare_parameter('aerial_variant', 'day')
         self.declare_parameter('grid_spacing', 5.0)
         self.declare_parameter('label_height', 0.7)
+        self.declare_parameter('routes', 'lup1,lup2,lup3')   # patrol routes drawn, comma separated
         for key in COLOR_KEYS:
             self.declare_parameter(f'colors.{key}', [1.0, 1.0, 1.0, 1.0])
 
@@ -131,8 +132,11 @@ class LayoutMarkersNode(Node):
                                 b.label.upper(), c['label'], h, z=b.height + 0.5))
 
         # Patrol routes, dashed in the colour of each robot.
+        shown = [r for r in str(self.get_parameter('routes').value).split(',') if r]
         for i, (robot, route) in enumerate(sorted(lay.patrol_routes.items())):
-            rgba = c.get(f'route_{robot}', c['label'])
+            if robot not in shown:
+                continue
+            rgba = c.get(f'route_{robot}', c.get('route_lup2', c['label']))
             markers.append(line_list('routes', i, dashed(route, 0.5, 0.35, closed=True), rgba,
                                      0.07, z=0.07))
         return MarkerArray(markers=markers)

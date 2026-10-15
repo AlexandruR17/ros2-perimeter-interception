@@ -36,6 +36,8 @@ def _launch(context, *args, **kwargs):
             launch_arguments=args.items())
 
     robots = [r for r in g('robots').split(',') if r]
+    # A single UGV patrols the whole base; several UGVs keep their sectors.
+    patrol_route = 'base' if len(robots) == 1 else ''
     soldiers = list(load_layout().soldiers) if g('soldiers').lower() == 'true' else []
     callsigns = [load_layout().soldiers[s].callsign for s in soldiers]
     actors = ','.join(['intruder1:north_breach'] + [f'{s}:soldier' for s in soldiers])
@@ -44,7 +46,8 @@ def _launch(context, *args, **kwargs):
         include('world.launch.py', {'world_variant': g('world_variant'), 'headless': g('headless'),
                                     'quality': g('quality'), 'actors': actors}),
         TimerAction(period=3.0, actions=[
-            *[include('robot.launch.py', {'robot': r, 'enable_camera': g('enable_camera')})
+            *[include('robot.launch.py', {'robot': r, 'enable_camera': g('enable_camera'),
+                                          'patrol_route': patrol_route})
               for r in robots],
             include('intruder.launch.py', {'name': 'intruder1', 'spawn': 'north_breach',
                                            'route': g('route'), 'start_delay': g('start_delay')}),
@@ -52,7 +55,8 @@ def _launch(context, *args, **kwargs):
         include('defense.launch.py', {'robots': ','.join(robots), 'mode': 'follow',
                                       'escort_by': 'soldier' if soldiers else 'robot'}),
         Node(package='perimeter_defense_viz', executable='layout_markers', name='layout_markers',
-             parameters=[viz_params, {'aerial_variant': g('world_variant')}]),
+             parameters=[viz_params, {'aerial_variant': g('world_variant'),
+                                      'routes': patrol_route or ','.join(robots)}]),
         Node(package='perimeter_defense_viz', executable='fleet_markers', name='fleet_markers',
              parameters=[viz_params, {'use_sim_time': True, 'robots': robots,
                                       'callsigns': [r.replace('lup', 'LUP-') for r in robots]}]),
@@ -68,7 +72,7 @@ def _launch(context, *args, **kwargs):
              condition=IfCondition(g('rviz'))),
     ]
     if g('dashboard').lower() == 'true':
-        actions.append(include('dashboard.launch.py', {'robots': ','.join(robots)}))
+        actions.append(include('dashboard.launch.py', {'robots': ','.join(robots), 'routes': patrol_route}))
     if soldiers:
         actions.append(TimerAction(period=3.0, actions=[
             include('soldiers.launch.py', {'soldiers': ','.join(soldiers), 'intruders': 'intruder1'})]))

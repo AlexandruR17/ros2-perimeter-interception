@@ -203,7 +203,12 @@ python3 -m pytest perimeter_defense_world/test
 
 The default base is fully robotic: no people on foot, every person inside
 the fence without a transponder is hostile, and the UGV that captures an
-intruder escorts him to the detention building.
+intruder escorts him to the detention building. A single UGV patrols the
+whole base (`base` loop in zones.yaml: east side, north edge, west side,
+south road, centre past the depot) until an alert takes it; with several
+UGVs each keeps its sector route. Robots only engage people inside the
+fence (an intruder waiting outside is tracked but not chased), never drive
+out through a breach and stop following a person who has left the base.
 
 ```bash
 ros2 launch perimeter_defense_bringup m2_track.launch.py                 # west route, LUP-2
@@ -272,9 +277,10 @@ If the intruder reaches the depot entrance, the objective is compromised: he
 stays there for 4 s, then runs back out through the breach he came in by. A
 robot can still capture him on the way out; once outside the fence he has
 escaped. The exercise outcome (objective compromised, exfiltrated, captured,
-detained) is published on `/sim/exercise/events` and shown as a large umpire
-banner over the base in RViz and over the map in the dashboard ("ARBITRU
-EXERCIȚIU"); it is exercise control information, not used by the defense.
+detained) is published on `/sim/exercise/events` and shown for 6 seconds
+(wall clock) as a large umpire banner over the base in RViz and over the map
+in the dashboard ("ARBITRU EXERCIȚIU"); it is exercise control information,
+not used by the defense.
 
 In follow mode with one robot the intruder often reaches the depot first;
 predictive interception comes in M3, the guard role at the objective in M4.

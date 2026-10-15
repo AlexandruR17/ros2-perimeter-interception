@@ -184,8 +184,7 @@ function drawBase() {
     L.polygon(poly.map((p) => ll(...p)), {color: '#6fb7ff', weight: 1, dashArray: '3 4', fillOpacity: 0.06,
                                           interactive: false}).addTo(app.groups.zones);
   }
-  for (const [robot, pts] of Object.entries(c.routes)) {
-    if (!c.robots.includes(robot)) continue;
+  for (const pts of Object.values(c.routes)) {
     L.polyline(pts.concat([pts[0]]).map((p) => ll(...p)),
       {color: '#6fb7ff', weight: 1, opacity: 0.5, dashArray: '6 6', interactive: false}).addTo(app.groups.routes);
   }
@@ -446,7 +445,7 @@ function onExerciseEvent(msg) {
   $('umpire-sub').textContent = `${sub} · ${ev.actor.toUpperCase()} · T+${mmss(ev.t)}${where}`;
   box.hidden = false;
   clearTimeout(app.umpireTimer);
-  app.umpireTimer = setTimeout(() => { box.hidden = true; }, good ? 8000 : 20000);
+  app.umpireTimer = setTimeout(() => { box.hidden = true; }, 6000);
   app.alerts.unshift({id: `X${app.umpireSeen.size}`, t: ev.t, kind: 'EXERCISE', severity: good ? 'INFO' : 'CRITICAL',
                       text: `[ARBITRU] ${title}`, track: 0, pos: ev.x !== null ? [ev.x, ev.y] : null});
   if (good) app.acks.set(app.alerts[0].id, {auto: true});

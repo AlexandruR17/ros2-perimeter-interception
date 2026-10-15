@@ -12,6 +12,11 @@ soldiers (escort_by: soldier) the robot HOLDs until a soldier reports that
 he took over. The predictive and naive interception modes and the
 multi-robot roles are added in M3/M4.
 
+Robots defend the inside of the base: people outside the fence are tracked
+(situational awareness) but not engaged, a robot stops following a person
+who leaves the base, and every goal is kept inside the fence, so robots
+never drive out through a breach.
+
 Engagement uses the IFF: a robot is sent to a lidar track only once the IFF
 has found it HOSTILE (tracked for 2 s without a transponder), so own
 personnel with transponders do not pull robots off their patrol. Fence and
@@ -80,6 +85,8 @@ class InterceptorAllocatorNode(Node):
         self.declare_parameter('escort_speed', 0.6)         # m/s, walking pace of the detainee
         self.declare_parameter('escort_wait_distance', 3.0)  # m, robot waits when he falls behind
         self.declare_parameter('handover_timeout', 20.0)    # s at the door before giving up
+        self.declare_parameter('inside_margin', 0.6)        # m beyond the fence still counted inside
+        self.declare_parameter('goal_clearance', 0.8)       # m, goals kept this far inside the fence
 
         self.frame: str = self.get_parameter('global_frame').value
         self.neutralize_d = float(self.get_parameter('neutralize_distance').value)
@@ -94,6 +101,9 @@ class InterceptorAllocatorNode(Node):
         self.handover_timeout = float(self.get_parameter('handover_timeout').value)
         layout = load_layout(self.get_parameter('zones_file').value or None)
         self.robot_stop: Optional[XY] = layout.detention.robot_stop if layout.detention else None
+        self.fence_min, self.fence_max = layout.fence_min, layout.fence_max
+        self.inside_margin = float(self.get_parameter('inside_margin').value)
+        self.goal_clearance = float(self.get_parameter('goal_clearance').value)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -125,10 +135,21 @@ class InterceptorAllocatorNode(Node):
     def on_custody(self, msg: Custody) -> None:
         self.custody[int(msg.track_id)] = int(msg.state)
 
+    def inside(self, x: float, y: float) -> bool:
+        m = self.inside_margin
+        return (self.fence_min[0] - m <= x <= self.fence_max[0] + m
+                and self.fence_min[1] - m <= y <= self.fence_max[1] + m)
+
     def threats(self) -> List[Track]:
-        """Tracks a robot should keep after (not friendly, not captured)."""
+        """Tracks a robot should keep after: not friendly, not captured, inside the base."""
         return [t for t in self.tracks.values()
-                if t.state in THREAT_STATES and t.classification != Track.CLASS_FRIEND]
+                if t.state in THREAT_STATES and t.classification != Track.CLASS_FRIEND
+                and self.inside(t.position.x, t.position.y)]
+
+    def clamp_inside(self, x: float, y: float) -> XY:
+        c = self.goal_clearance
+        return (min(max(x, self.fence_min[0] + c), self.fence_max[0] - c),
+                min(max(y, self.fence_min[1] + c), self.fence_max[1] - c))
 
     @staticmethod
     def engageable(t: Track) -> bool:
@@ -197,6 +218,7 @@ class InterceptorAllocatorNode(Node):
             gy = ty + (r.pose[1] - ty) / dist * self.standoff
         else:
             gx, gy = tx, ty
+        gx, gy = self.clamp_inside(gx, gy)
         self.send_goal(r, (gx, gy), math.atan2(ty - r.pose[1], tx - r.pose[0]))
 
     # -- Nav2 ---------------------------------------------------------------

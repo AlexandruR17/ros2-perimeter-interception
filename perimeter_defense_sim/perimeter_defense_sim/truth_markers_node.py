@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections import deque
 from typing import Deque, Dict, List, Tuple
 
@@ -50,7 +51,7 @@ class TruthMarkersNode(Node):
         self.declare_parameter('trail_seconds', 20.0)
         self.declare_parameter('color', [1.0, 1.0, 1.0, 0.95])
         self.declare_parameter('banner_position', [20.0, 14.0])
-        self.declare_parameter('banner_seconds', 15.0)
+        self.declare_parameter('banner_seconds', 6.0)     # wall clock, also with a slow simulation
 
         friends = [a for a in self.get_parameter('friendly_actors').value if a]
         labels = list(self.get_parameter('friendly_labels').value)
@@ -73,6 +74,7 @@ class TruthMarkersNode(Node):
         self.banner_xy = tuple(float(v) for v in self.get_parameter('banner_position').value)
         self.banner_s = float(self.get_parameter('banner_seconds').value)
         self.banner: Tuple[str, float] = ('', -1e9)
+        self.banner_on = False
         latched = QoSProfile(depth=20, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
         self.create_subscription(String, '/sim/exercise/events', self.on_event, latched)
@@ -90,13 +92,24 @@ class TruthMarkersNode(Node):
         except ValueError:
             return
         if ev.get('event') in BANNERS:
-            self.banner = (ev['event'], self.get_clock().now().nanoseconds * 1e-9)
+            self.banner = (ev['event'], time.monotonic())
 
     def banner_markers(self) -> List[Marker]:
         event, since = self.banner
-        now = self.get_clock().now().nanoseconds * 1e-9
+        now = time.monotonic()
         if not event or now - since > self.banner_s:
-            return []
+            if not self.banner_on:
+                return []
+            # Remove it explicitly: with a slow simulation the marker lifetime
+            # (simulation time) would keep it on screen much longer.
+            self.banner_on = False
+            gone = []
+            for ns in ('umpire_bg', 'umpire_frame', 'umpire_title', 'umpire_sub'):
+                m = self.marker(ns, 0, Marker.CUBE)
+                m.action = Marker.DELETE
+                gone.append(m)
+            return gone
+        self.banner_on = True
         title, sub, (r, g, b) = BANNERS[event]
         x, y = self.banner_xy
         # Blink for the first seconds.
