@@ -31,7 +31,7 @@ def _launch(context, *args, **kwargs):
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robots', default_value='lup1', description='comma separated'),
-        DeclareLaunchArgument('mode', default_value='follow'),
+        DeclareLaunchArgument('mode', default_value='predictive', description='predictive or naive'),
         DeclareLaunchArgument('escort_by', default_value='robot', description='robot or soldier'),
         OpaqueFunction(function=_launch),
     ])

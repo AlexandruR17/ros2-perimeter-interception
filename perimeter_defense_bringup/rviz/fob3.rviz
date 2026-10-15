@@ -56,6 +56,14 @@ Visualization Manager:
         Reliability Policy: Reliable
         Depth: 5
     - Class: rviz_default_plugins/MarkerArray
+      Name: Interception
+      Enabled: true
+      Topic:
+        Value: /fleet/intercept_markers
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+        Depth: 5
+    - Class: rviz_default_plugins/MarkerArray
       Name: Threats
       Enabled: true
       Topic:

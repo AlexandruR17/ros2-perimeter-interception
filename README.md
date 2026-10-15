@@ -23,7 +23,7 @@ physical security side.
 |---|---|---|
 | M1 | Realistic world, generated Nav2 maps, one UGV with Nav2 + AMCL patrolling waypoints | done |
 | M2 | Intruder actor, fence sensor, lidar person detector, tracker, IFF, one robot following the track, capture and robot escort to detention, status board; optional soldiers on foot | done |
-| M3 | Predictive interception with one robot, naive mode, RViz markers | planned |
+| M3 | Predictive interception with one robot, naive mode, runtime switch, RViz and dashboard markers | done |
 | M4 | Three namespaced robots, role allocation, scenario S1 | planned |
 | M5 | Own personnel in authorized zones, threat assessor, false alarm scenario S2 (soldiers, transponders and IFF already in M2) | planned |
 | M6 | Multi-target tracking, two intruders, diversion (S3, S4) | planned |
@@ -299,6 +299,48 @@ ros2 topic echo /perimeter/spot_reports
 ros2 topic echo /perimeter/custody
 python3 -m pytest src/ros2-perimeter-interception/perimeter_defense/test
 ```
+
+## M3: predictive interception and naive mode
+
+```bash
+ros2 launch perimeter_defense_bringup m2_track.launch.py mode:=predictive   # default
+ros2 launch perimeter_defense_bringup m2_track.launch.py mode:=naive
+# switch while running (or with the PREDICTIV / NAIV buttons of the dashboard):
+ros2 param set /interceptor_allocator mode naive
+ros2 topic pub --once /c2/mode std_msgs/msg/String "{data: predictive}"
+```
+
+- **naive** (FOLLOW): the robot drives to the last measured position of the
+  target, without prediction. This is the baseline of the evaluation.
+- **predictive** (INTERCEPT): the tracker predicts the target 6 s ahead with
+  the constant velocity model (every 0.2 s, stopping at obstacles and at the
+  objective). The interception point is the first predicted point q(t) the
+  robot reaches no later than the target:
+  `(driving_distance(robot, q) + turn / turn_rate * v) / v + margin <= t`
+  with v = 1.6 m/s planning speed, 0.3 s margin and the time to turn towards
+  the point. If no point qualifies, the robot goes to the last predicted
+  point (usually towards the objective). Within 2 m it goes straight for the
+  target.
+- **Driving distance**: the Nav2 map is coarsened to 0.25 m, obstacles are
+  grown by the robot radius, cells outside the fence are excluded, and one
+  Dijkstra run per robot every 0.3 s (2 ms) gives the distance around the
+  buildings to every point of the prediction.
+- **Alert without lidar contact** (predictive mode): there is no velocity, so
+  the intruder is assumed to walk (1.3 m/s) from the alert position to the
+  objective along the shortest path, starting at the time of the alert; the
+  robot cuts off that assumed walk with the same rule instead of driving to
+  the breach where the intruder was. In naive mode it drives to the alert.
+- Goals are resent only when the point moved more than 0.7 m or after 0.6 s.
+- RViz display "Interception": cross at the point, line from the robot,
+  `INT LUP-2 ETA 2.4s / T 3.0s` (cyan when the robot gets there first, orange
+  when it cannot). The dashboard shows the same cross and the ETA.
+
+Physical limit seen in the tests: the intruder runs at 2.5 m/s, the UGV at
+most 2.0 m/s. A single UGV that is not ahead of the intruder when he is
+detected cannot catch him before the depot, whatever the mode; it then
+catches him at the depot or on the way out. The guard role at the objective
+(M4) addresses this, and the batch evaluation (M7) compares the modes over
+many runs.
 
 ## C2 web dashboard
 

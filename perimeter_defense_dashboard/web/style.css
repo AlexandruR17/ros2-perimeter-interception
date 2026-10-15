@@ -238,3 +238,8 @@ body.night .leaflet-marker-pane, body.night .entity .sym, body.night .selection 
 .umpire.good .umpire-title { color: var(--ok); }
 .umpire-sub { font-size: 14px; color: var(--strong); margin-top: 6px; }
 .umpire-hint { font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.2em; }
+
+.mode { display: flex; align-items: center; gap: 4px; }
+.mode .label { font-size: 12px; color: var(--dim); letter-spacing: 0.12em; margin-right: 4px; }
+.mode button.on { border-color: var(--friend); color: var(--friend); }
+.map-label.intercept { font-family: var(--mono); font-size: 11px; color: #9ff3ff; }

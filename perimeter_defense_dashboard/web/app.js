@@ -234,6 +234,14 @@ function render() {
       L.polyline(r.plan.map((p) => ll(...p)), {color: friend, weight: 2, opacity: 0.8, dashArray: '2 5',
                                                interactive: false}).addTo(g);
     }
+    if (r.role === 'INTERCEPT' && r.goal) {
+      const [gx, gy] = r.goal, c = '#9ff3ff';
+      L.polyline([ll(gx - 0.6, gy - 0.6), ll(gx + 0.6, gy + 0.6)], {color: c, weight: 3, interactive: false}).addTo(g);
+      L.polyline([ll(gx - 0.6, gy + 0.6), ll(gx + 0.6, gy - 0.6)], {color: c, weight: 3, interactive: false}).addTo(g);
+      L.polyline([ll(r.x, r.y), ll(gx, gy)], {color: c, weight: 1, dashArray: '4 4', interactive: false}).addTo(g);
+      g.addLayer(label(gx + 0.8, gy + 0.6, `INT ${r.callsign}${r.eta !== null ? ' · ETA ' + r.eta.toFixed(1) + ' s' : ''}`,
+                       'intercept'));
+    }
     const hx = r.x + 2.2 * Math.cos(r.yaw), hy = r.y + 2.2 * Math.sin(r.yaw);
     L.polyline([ll(r.x, r.y), ll(hx, hy)], {color: friend, weight: 2, interactive: false}).addTo(g);
     const m = L.marker(ll(r.x, r.y), {icon: symIcon(SIDC.ugv, {uniqueDesignation: r.callsign, type: 'UGV',
@@ -361,6 +369,7 @@ function renderSelection() {
       ['POZIȚIE MGRS', mgrsOf(r.x, r.y)],
       ['LAT / LON', latLonOf(r.x, r.y)],
       ['DIST. LA ȚINTĂ', r.goal_dist !== null ? `${r.goal_dist.toFixed(1)} m` : '-'],
+      ['ETA INTERCEPTARE', r.eta !== null && r.eta !== undefined ? `${r.eta.toFixed(1)} s` : '-'],
       ['BATERIE<span class="sim-tag">SIM</span>', `${r.battery.toFixed(0)} %${bar(r.battery)}`],
       ['LEGĂTURĂ RADIO<span class="sim-tag">SIM</span>', `${r.link.toFixed(0)} %${bar(r.link)}`],
     ]);
@@ -576,6 +585,8 @@ function refresh() {
   th.className = 'threat ' + s.threat;
   $('threat-value').textContent = RO.threat[s.threat] || s.threat;
   $('tl-time').textContent = `T+${mmss(s.t)}`;
+  $('mode-predictive').classList.toggle('on', s.mode === 'predictive');
+  $('mode-naive').classList.toggle('on', s.mode === 'naive');
   $('simtime').textContent = `T+ ${mmss(s.t)} SIM`;
 }
 
@@ -705,6 +716,12 @@ function setupUI() {
   $('layers-btn').addEventListener('click', () => { menu.hidden = !menu.hidden; });
 
   $('live-btn').addEventListener('click', goLive);
+  document.querySelectorAll('#mode button').forEach((b) => b.addEventListener('click', () => {
+    if (!app.ros || !app.connected) return;
+    new ROSLIB.Topic({ros: app.ros, name: '/c2/mode', messageType: 'std_msgs/String'})
+      .publish(new ROSLIB.Message({data: b.dataset.mode}));
+    addAudit(`comandă mod interceptare: ${b.textContent}`);
+  }));
   $('umpire').addEventListener('click', () => { $('umpire').hidden = true; });
   const track = $('tl-track');
   let dragging = false;

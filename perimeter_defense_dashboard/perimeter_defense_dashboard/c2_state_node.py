@@ -23,6 +23,7 @@ import rclpy
 from nav_msgs.msg import Odometry, Path
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
@@ -85,6 +86,10 @@ class C2StateNode(Node):
                                          r, math.hypot(m.twist.twist.linear.x, m.twist.twist.linear.y)), 10)
             self.create_subscription(Path, f'/{r}/plan', lambda m, r=r: self.plans.__setitem__(
                 r, [(p.pose.position.x, p.pose.position.y) for p in m.poses]), 5)
+        self.mode = ''
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             reliability=ReliabilityPolicy.RELIABLE)
+        self.create_subscription(String, '/fleet/mode', self.on_mode, latched)
         self.create_subscription(RoleAssignment, '/fleet/roles',
                                  lambda m: self.roles.__setitem__(m.robot, m), 20)
         self.create_subscription(TrackArray, '/threats/tracks', lambda m: setattr(self, 'tracks', m), 10)
@@ -102,6 +107,12 @@ class C2StateNode(Node):
     # -- inputs ---------------------------------------------------------------
     def on_paths(self, msg: PredictedPathArray) -> None:
         self.paths = {int(p.track_id): [(q.x, q.y) for q in p.points] for p in msg.paths}
+
+    def on_mode(self, msg: String) -> None:
+        if self.mode and msg.data != self.mode:
+            self.log.add(self.now_s(), 'MODE', 'INFO',
+                         'Mod interceptare: ' + {'predictive': 'PREDICTIV', 'naive': 'NAIV'}.get(msg.data, msg.data))
+        self.mode = msg.data
 
     def on_custody(self, msg: Custody) -> None:
         self.custody[int(msg.track_id)] = (msg.escort, int(msg.state))
@@ -151,6 +162,7 @@ class C2StateNode(Node):
             'yaw': round(yaw, 3), 'speed': round(self.speed.get(r, 0.0), 2), 'role': role,
             'track': track, 'goal': list(goal_xy) if goal_xy else None,
             'goal_dist': round(math.dist((x, y), goal_xy), 1) if goal_xy else None,
+            'eta': round(float(role_msg.eta), 1) if role_msg and role_msg.eta > 0.0 else None,
             'plan': downsample(plan, self.plan_points),
             'battery': round(self.battery[r].update((x, y), dt), 1),
             'link': round(link_quality((x, y), self.command_post, blocked), 0),
@@ -193,7 +205,7 @@ class C2StateNode(Node):
         state = {
             't': round(now, 2), 'wall': round(time.time(), 2),
             'robots': robots, 'tracks': tracks, 'contacts': contacts,
-            'counters': self.register.counters(), 'threat': threat_level(contacts),
+            'counters': self.register.counters(), 'threat': threat_level(contacts), 'mode': self.mode,
             'events': self.log.recent(self.events_sent),
         }
         self.pub.publish(String(data=json.dumps(state, ensure_ascii=False, separators=(',', ':'))))

@@ -52,7 +52,7 @@ def _launch(context, *args, **kwargs):
             include('intruder.launch.py', {'name': 'intruder1', 'spawn': 'north_breach',
                                            'route': g('route'), 'start_delay': g('start_delay')}),
         ]),
-        include('defense.launch.py', {'robots': ','.join(robots), 'mode': 'follow',
+        include('defense.launch.py', {'robots': ','.join(robots), 'mode': g('mode'),
                                       'escort_by': 'soldier' if soldiers else 'robot'}),
         Node(package='perimeter_defense_viz', executable='layout_markers', name='layout_markers',
              parameters=[viz_params, {'aerial_variant': g('world_variant'),
@@ -92,6 +92,9 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('soldiers', default_value='false',
                               description='own soldiers on foot (spot reports, escort); '
                                           'default: fully robotic base'),
+        DeclareLaunchArgument('mode', default_value='predictive',
+                              description='predictive (interception point) or naive (last position); '
+                                          'switch at runtime from the dashboard or with ros2 param set'),
         DeclareLaunchArgument('dashboard', default_value='true',
                               description='C2 web dashboard on http://localhost:8080'),
         DeclareLaunchArgument('start_delay', default_value='15.0',

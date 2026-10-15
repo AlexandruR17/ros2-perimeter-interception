@@ -51,7 +51,7 @@ tracker:
 
 interceptor_allocator:
   ros__parameters:
-    mode: follow              # M2: follow; M3: predictive or naive
+    mode: predictive          # predictive (interception point) or naive (last measured position)
     period: 0.3               # s, role recalculation
     neutralize_distance: 1.0  # m
     resend_distance: 0.7      # m, goal resent if the target moved more
@@ -66,6 +66,13 @@ interceptor_allocator:
     handover_timeout: 20.0    # s at the detention door at most
     inside_margin: 0.6        # m beyond the fence still counted as inside (people in a breach)
     goal_clearance: 0.8       # m, robot goals are kept this far inside the fence
+    planning_speed: 1.6       # m/s, average robot speed assumed for the interception ETA
+    intercept_margin: 0.3     # s the robot must arrive before the target
+    direct_distance: 2.0      # m, closer than this the robot goes straight for the target
+    robot_radius: 0.35        # m, obstacle growth for the driving distances
+    turn_rate: 1.2            # rad/s, turning time added to the interception ETA
+    assumed_speed: 1.3        # m/s, intruder known only from an alert walks to the objective
+    alert_horizon: 15.0       # s of that assumed walk considered for the interception
 
 iff:
   ros__parameters:

@@ -1,16 +1,27 @@
 """Interceptor allocation: assigns roles to the UGVs and sends them Nav2 goals.
 
-M2 implements the 'follow' mode: the robot closest to the threat leaves its
-patrol; it investigates a fence alert (ALERT track, coarse position) and
-follows the track once the lidar confirms it. A robot that reaches the
+The robot closest to the threat (driving distance) leaves its patrol and
+investigates a fence or spot report alert (ALERT track, coarse position).
+Once the lidar confirms the track, two modes, switchable at runtime
+(parameter 'mode' or topic /c2/mode, current mode on /fleet/mode):
+  predictive  INTERCEPT: drive to the interception point, the first point of
+              the target's 6 s prediction the robot reaches no later than the
+              target (driving distance around buildings at planning_speed,
+              plus intercept_margin and turning time); close to the target
+              it goes straight for it. An alert without lidar contact is
+              investigated the same way, assuming the intruder walks from the
+              alert position to the objective along the shortest path since
+              the time of the alert.
+  naive       FOLLOW: drive to the last measured position of the target
+              (no prediction), the baseline of the evaluation.
+A robot that reaches the
 person (within neutralize_distance) captures him and HOLDs him for a moment.
 Fully robotic base (escort_by: robot, default): the robot then ESCORTs him
 to the detention building at walking pace, waiting when he falls behind,
 stops next to the door, reports the custody (/perimeter/custody) and goes
 back to patrol once he is inside (the lidar no longer sees him). With
 soldiers (escort_by: soldier) the robot HOLDs until a soldier reports that
-he took over. The predictive and naive interception modes and the
-multi-robot roles are added in M3/M4.
+he took over. The multi-robot roles (guard, flank) are added in M4.
 
 Robots defend the inside of the base: people outside the fence are tracked
 (situational awareness) but not engaged, a robot stops following a person
@@ -32,21 +43,30 @@ import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point, PoseStamped
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.msg import SpeedLimit
+from nav_msgs.msg import OccupancyGrid
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from std_msgs.msg import Bool, UInt32
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Bool, ColorRGBA, String, UInt32
 from tf2_ros import Buffer, TransformListener
+from visualization_msgs.msg import Marker, MarkerArray
 
-from perimeter_defense.ros_utils import lookup_pose2d, spin_node
-from perimeter_defense_msgs.msg import Custody, RoleAssignment, Track, TrackArray
+from perimeter_defense.core.geodesic import GeodesicGrid
+from perimeter_defense.core.interception import Interception, intercept_point, resample_along
+from perimeter_defense.ros_utils import lookup_pose2d, spin_node, to_sec
+from perimeter_defense_msgs.msg import (Custody, PredictedPathArray, RoleAssignment, Track,
+                                        TrackArray)
 from perimeter_defense_world.geometry import load_layout
 
 XY = Tuple[float, float]
 THREAT_STATES = (Track.STATE_ALERT, Track.STATE_TRACKED, Track.STATE_LOST)
+MODES = ('predictive', 'naive')
 
 
 @dataclass
@@ -64,13 +84,14 @@ class RobotState:
     hold_since: float = 0.0
     escort_phase: str = ''          # lead, handover
     phase_since: float = 0.0
+    intercept: Optional[Interception] = None
 
 
 class InterceptorAllocatorNode(Node):
     def __init__(self) -> None:
         super().__init__('interceptor_allocator')
         self.declare_parameter('robots', ['lup1'])
-        self.declare_parameter('mode', 'follow')
+        self.declare_parameter('mode', 'predictive')         # predictive or naive
         self.declare_parameter('global_frame', 'map')
         self.declare_parameter('period', 0.3)
         self.declare_parameter('neutralize_distance', 1.0)
@@ -87,6 +108,13 @@ class InterceptorAllocatorNode(Node):
         self.declare_parameter('handover_timeout', 20.0)    # s at the door before giving up
         self.declare_parameter('inside_margin', 0.6)        # m beyond the fence still counted inside
         self.declare_parameter('goal_clearance', 0.8)       # m, goals kept this far inside the fence
+        self.declare_parameter('planning_speed', 1.6)       # m/s, robot average speed for the ETA
+        self.declare_parameter('intercept_margin', 0.3)     # s the robot must be early at the point
+        self.declare_parameter('direct_distance', 2.0)      # m, closer than this: go for the target
+        self.declare_parameter('robot_radius', 0.35)        # m, obstacle growth for driving distances
+        self.declare_parameter('turn_rate', 1.2)            # rad/s, time to turn towards a point
+        self.declare_parameter('assumed_speed', 1.3)        # m/s of an intruder only known from an alert
+        self.declare_parameter('alert_horizon', 15.0)       # s of the assumed walk considered
 
         self.frame: str = self.get_parameter('global_frame').value
         self.neutralize_d = float(self.get_parameter('neutralize_distance').value)
@@ -104,6 +132,19 @@ class InterceptorAllocatorNode(Node):
         self.fence_min, self.fence_max = layout.fence_min, layout.fence_max
         self.inside_margin = float(self.get_parameter('inside_margin').value)
         self.goal_clearance = float(self.get_parameter('goal_clearance').value)
+        self.planning_speed = float(self.get_parameter('planning_speed').value)
+        self.intercept_margin = float(self.get_parameter('intercept_margin').value)
+        self.direct_d = float(self.get_parameter('direct_distance').value)
+        self.robot_radius = float(self.get_parameter('robot_radius').value)
+        self.turn_rate = float(self.get_parameter('turn_rate').value)
+        self.assumed_speed = float(self.get_parameter('assumed_speed').value)
+        self.alert_horizon = float(self.get_parameter('alert_horizon').value)
+        self.objective: XY = layout.objective_target
+        self.objective_tree = None
+        self.mode = self.check_mode(self.get_parameter('mode').value)
+        self.grid: Optional[GeodesicGrid] = None
+        self.fields: Dict[str, np.ndarray] = {}           # driving distances from each robot
+        self.paths: Dict[int, Tuple[float, List[XY]]] = {}
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -123,8 +164,67 @@ class InterceptorAllocatorNode(Node):
         self.create_timer(1.0, self.repeat_custody)
         self.neutralize_pub = self.create_publisher(UInt32, '/threats/neutralize', 10)
         self.role_pub = self.create_publisher(RoleAssignment, '/fleet/roles', 10)
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             reliability=ReliabilityPolicy.RELIABLE)
+        self.create_subscription(OccupancyGrid, '/map', self.on_map, latched)
+        self.create_subscription(PredictedPathArray, '/threats/predicted_paths', self.on_paths, 10)
+        self.create_subscription(String, '/c2/mode', lambda m: self.set_mode(m.data, 'C2'), 10)
+        self.mode_pub = self.create_publisher(String, '/fleet/mode', latched)
+        self.marker_pub = self.create_publisher(MarkerArray, '/fleet/intercept_markers', 10)
+        self.add_on_set_parameters_callback(self.on_parameters)
         self.create_timer(float(self.get_parameter('period').value), self.tick)
-        self.get_logger().info(f'mode: {self.get_parameter("mode").value}')
+        self.mode_pub.publish(String(data=self.mode))
+        self.get_logger().info(f'mode: {self.mode}')
+
+    # -- mode ---------------------------------------------------------------
+    @staticmethod
+    def check_mode(mode: str) -> str:
+        mode = 'naive' if mode == 'follow' else mode     # M2 name of the naive mode
+        if mode not in MODES:
+            raise ValueError(f'mode must be one of {MODES}, not "{mode}"')
+        return mode
+
+    def set_mode(self, mode: str, source: str) -> bool:
+        try:
+            mode = self.check_mode(mode.strip().lower())
+        except ValueError as e:
+            self.get_logger().error(str(e))
+            return False
+        if mode != self.mode:
+            self.mode = mode
+            for r in self.robots.values():
+                r.goal = None                              # resend at once in the new mode
+            self.get_logger().warn(f'mode -> {mode} ({source})')
+        self.mode_pub.publish(String(data=self.mode))
+        return True
+
+    def on_parameters(self, params) -> SetParametersResult:
+        for p in params:
+            if p.name == 'mode' and not self.set_mode(str(p.value), 'parameter'):
+                return SetParametersResult(successful=False, reason='mode: predictive or naive')
+        return SetParametersResult(successful=True)
+
+    # -- inputs -------------------------------------------------------------
+    def on_map(self, msg: OccupancyGrid) -> None:
+        info = msg.info
+        occupied = np.asarray(msg.data, dtype=np.int16).reshape(info.height, info.width) > 50
+        c = self.goal_clearance - self.robot_radius
+        self.grid = GeodesicGrid(occupied, info.resolution, (info.origin.position.x, info.origin.position.y),
+                                 inflation=self.robot_radius,
+                                 bounds=((self.fence_min[0] + c, self.fence_min[1] + c),
+                                         (self.fence_max[0] - c, self.fence_max[1] - c)))
+        self.objective_tree = self.grid.path_tree(self.objective)
+        self.get_logger().info(f'driving distance grid {self.grid.cols}x{self.grid.rows} '
+                               f'at {self.grid.res:.2f} m')
+
+    def on_paths(self, msg: PredictedPathArray) -> None:
+        self.paths = {int(p.track_id): (float(p.dt), [(q.x, q.y) for q in p.points]) for p in msg.paths}
+
+    def driving_distance(self, r: RobotState, p: XY) -> float:
+        field = self.fields.get(r.name)
+        if self.grid is None or field is None:
+            return math.dist(r.pose[:2], p)
+        return self.grid.lookup(field, p)
 
     def now_s(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
@@ -160,6 +260,11 @@ class InterceptorAllocatorNode(Node):
     def tick(self) -> None:
         for r in self.robots.values():
             r.pose = lookup_pose2d(self.tf_buffer, self.frame, f'{r.name}/base_link')
+            r.intercept = None
+            if r.pose and self.grid is not None:
+                field = self.grid.distances_from(r.pose[:2])
+                if field is not None:
+                    self.fields[r.name] = field
         threats = self.threats()
         now = self.now_s()
 
@@ -176,9 +281,10 @@ class InterceptorAllocatorNode(Node):
             self.assign_follow([t for t in threats if self.engageable(t)])
         for r in self.robots.values():
             self.publish_role(r)
+        self.publish_markers()
 
     def assign_follow(self, threats: List[Track]) -> None:
-        """M2: the closest available robot investigates or follows each threat."""
+        """The closest available robot (driving distance) takes each threat."""
         busy = {r.track_id for r in self.robots.values() if r.track_id}
         for t in threats:
             if t.id in busy:
@@ -186,8 +292,7 @@ class InterceptorAllocatorNode(Node):
             free = [r for r in self.robots.values() if r.track_id == 0 and r.pose]
             if not free:
                 break
-            r = min(free, key=lambda r: math.hypot(r.pose[0] - t.position.x,
-                                                   r.pose[1] - t.position.y))
+            r = min(free, key=lambda r: self.driving_distance(r, (t.position.x, t.position.y)))
             r.track_id = t.id
             r.patrol_pub.publish(Bool(data=False))
         for r in self.robots.values():
@@ -196,22 +301,79 @@ class InterceptorAllocatorNode(Node):
             t = self.tracks.get(r.track_id)
             if t is None or not r.pose:
                 continue
-            role = RoleAssignment.INVESTIGATE if t.state == Track.STATE_ALERT else RoleAssignment.FOLLOW
+            if self.try_neutralize(r, t):
+                continue
+            if t.state == Track.STATE_ALERT:
+                role = RoleAssignment.INVESTIGATE
+            elif self.mode == 'predictive':
+                role = RoleAssignment.INTERCEPT
+            else:
+                role = RoleAssignment.FOLLOW
             if role != r.role:
                 r.role = role
-                name = 'INVESTIGATE' if role == RoleAssignment.INVESTIGATE else 'FOLLOW'
-                self.get_logger().warn(f'{r.name}: {name} track T{t.id}')
+                names = {RoleAssignment.INVESTIGATE: 'INVESTIGATE', RoleAssignment.INTERCEPT: 'INTERCEPT',
+                         RoleAssignment.FOLLOW: 'FOLLOW'}
+                self.get_logger().warn(f'{r.name}: {names[role]} track T{t.id}')
+            if role == RoleAssignment.INTERCEPT:
+                self.drive_to_intercept(r, t)
+            elif role == RoleAssignment.INVESTIGATE and self.mode == 'predictive':
+                self.investigate_predictive(r, t)
+            else:
+                self.drive_to_track(r, t)
+
+    def try_neutralize(self, r: RobotState, t: Track) -> bool:
+        """A robot within neutralize_distance of a confirmed target captures him."""
+        dist = math.hypot(r.pose[0] - t.position.x, r.pose[1] - t.position.y)
+        if dist > self.neutralize_d or t.state != Track.STATE_TRACKED:
+            return False
+        self.neutralize_pub.publish(UInt32(data=int(t.id)))
+        self.get_logger().warn(f'{r.name}: track T{t.id} NEUTRALIZED at {dist:.2f} m')
+        self.cancel_goal(r)
+        r.role, r.hold_since = RoleAssignment.HOLD, self.now_s()
+        return True
+
+    def drive_to_intercept(self, r: RobotState, t: Track) -> None:
+        """Predictive mode: go where the target will be when the robot gets there."""
+        tx, ty = t.position.x, t.position.y
+        path = self.paths.get(int(t.id))
+        if path is None or math.hypot(r.pose[0] - tx, r.pose[1] - ty) < self.direct_d:
             self.drive_to_track(r, t)
+            return
+        dt, points = path
+        self.go_intercept(r, t, points, dt)
+
+    def investigate_predictive(self, r: RobotState, t: Track) -> None:
+        """Alert without lidar contact: cut off the assumed walk to the objective."""
+        if self.grid is None or self.objective_tree is None:
+            self.drive_to_track(r, t)
+            return
+        age = max(0.0, self.now_s() - to_sec(t.last_update))
+        route = self.grid.path_to_goal(self.objective_tree, (t.position.x, t.position.y))
+        dt = 0.2
+        points = resample_along(route, self.assumed_speed, dt, age, self.alert_horizon)
+        if not points:
+            self.drive_to_track(r, t)
+            return
+        self.go_intercept(r, t, points, dt)
+
+    def go_intercept(self, r: RobotState, t: Track, points: List[XY], dt: float) -> None:
+        def cost(q: XY) -> float:
+            # Driving distance plus the time to turn towards the point, as distance.
+            turn = abs(math.remainder(math.atan2(q[1] - r.pose[1], q[0] - r.pose[0]) - r.pose[2], math.tau))
+            return self.driving_distance(r, q) + turn / self.turn_rate * self.planning_speed
+
+        res = intercept_point(points, dt, cost, self.planning_speed, self.intercept_margin)
+        if res is None:
+            self.drive_to_track(r, t)
+            return
+        r.intercept = res
+        gx, gy = self.clamp_inside(*res.point)
+        self.send_goal(r, (gx, gy), math.atan2(t.position.y - gy, t.position.x - gx))
 
     def drive_to_track(self, r: RobotState, t: Track) -> None:
+        """Naive mode (and alerts, and the last metres): go to the last measured position."""
         tx, ty = t.position.x, t.position.y
         dist = math.hypot(r.pose[0] - tx, r.pose[1] - ty)
-        if dist <= self.neutralize_d and t.state == Track.STATE_TRACKED:
-            self.neutralize_pub.publish(UInt32(data=int(t.id)))
-            self.get_logger().warn(f'{r.name}: track T{t.id} NEUTRALIZED at {dist:.2f} m')
-            self.cancel_goal(r)
-            r.role, r.hold_since = RoleAssignment.HOLD, self.now_s()
-            return
         # Stop short of the person, who is an obstacle in the costmap.
         if dist > self.standoff:
             gx = tx + (r.pose[0] - tx) / dist * self.standoff
@@ -321,7 +483,41 @@ class InterceptorAllocatorNode(Node):
         msg.robot, msg.role, msg.track_id = r.name, r.role, r.track_id
         if r.goal:
             msg.goal.x, msg.goal.y = r.goal
+        if r.intercept is not None:
+            msg.eta = float(r.intercept.eta)
         self.role_pub.publish(msg)
+
+    def publish_markers(self) -> None:
+        """Interception points in RViz: cross, line from the robot, ETA vs target time."""
+        out: List[Marker] = [Marker(action=Marker.DELETEALL)]
+        out[0].header.frame_id = self.frame
+        for i, r in enumerate(self.robots.values()):
+            if r.intercept is None or not r.pose:
+                continue
+            (x, y), res = r.intercept.point, r.intercept
+            color = ColorRGBA(r=0.3, g=0.95, b=1.0, a=1.0) if res.feasible else ColorRGBA(r=1.0, g=0.6, b=0.2, a=1.0)
+            cross = self._marker('intercept_point', i, Marker.LINE_LIST, color)
+            cross.scale.x = 0.12
+            cross.points = [Point(x=x - 0.6, y=y - 0.6, z=0.3), Point(x=x + 0.6, y=y + 0.6, z=0.3),
+                            Point(x=x - 0.6, y=y + 0.6, z=0.3), Point(x=x + 0.6, y=y - 0.6, z=0.3)]
+            line = self._marker('intercept_line', i, Marker.LINE_STRIP, color)
+            line.scale.x = 0.05
+            line.points = [Point(x=r.pose[0], y=r.pose[1], z=0.3), Point(x=x, y=y, z=0.3)]
+            label = self._marker('intercept_label', i, Marker.TEXT_VIEW_FACING, color)
+            label.pose.position.x, label.pose.position.y, label.pose.position.z = x, y + 1.0, 0.5
+            label.scale.z = 0.6
+            label.text = f'INT {callsign(r.name)}  ETA {res.eta:.1f}s / T {res.t:.1f}s'
+            out += [cross, line, label]
+        self.marker_pub.publish(MarkerArray(markers=out))
+
+    def _marker(self, ns: str, mid: int, mtype: int, color: ColorRGBA) -> Marker:
+        m = Marker()
+        m.header.frame_id = self.frame
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.ns, m.id, m.type, m.action = ns, mid, mtype, Marker.ADD
+        m.pose.orientation.w = 1.0
+        m.color = color
+        return m
 
 
 def callsign(robot: str) -> str:
