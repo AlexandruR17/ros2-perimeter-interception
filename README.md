@@ -330,10 +330,23 @@ ros2 topic pub --once /c2/mode std_msgs/msg/String "{data: predictive}"
   objective along the shortest path, starting at the time of the alert; the
   robot cuts off that assumed walk with the same rule instead of driving to
   the breach where the intruder was. In naive mode it drives to the alert.
+- A robot investigating an alert takes over at once an unidentified lidar
+  track that appears within 8 m of the alert or 4 m of itself, without
+  waiting the 2 s the IFF needs (otherwise the intruder runs past it).
 - Goals are resent only when the point moved more than 0.7 m or after 0.6 s.
 - RViz display "Interception": cross at the point, line from the robot,
   `INT LUP-2 ETA 2.4s / T 3.0s` (cyan when the robot gets there first, orange
   when it cannot). The dashboard shows the same cross and the ETA.
+
+First comparison (one UGV patrolling the whole base, west route, the
+intruder starting after 12 s or 25 s, so the robot is elsewhere on its loop):
+
+| Start delay | Predictive | Naive |
+|---|---|---|
+| 12 s | captured before the depot | reached the depot, captured there |
+| 25 s | reached the depot, captured on the way out | reached the depot, escaped |
+
+Single runs, not a statistic; the batch evaluation (M7) repeats them.
 
 Physical limit seen in the tests: the intruder runs at 2.5 m/s, the UGV at
 most 2.0 m/s. A single UGV that is not ahead of the intruder when he is

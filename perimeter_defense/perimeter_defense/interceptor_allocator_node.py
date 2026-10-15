@@ -31,7 +31,10 @@ never drive out through a breach.
 Engagement uses the IFF: a robot is sent to a lidar track only once the IFF
 has found it HOSTILE (tracked for 2 s without a transponder), so own
 personnel with transponders do not pull robots off their patrol. Fence and
-spot report alerts are investigated at once.
+spot report alerts are investigated at once, and a robot investigating an
+alert takes over at once an unidentified lidar track that appears near the
+alert or near itself (almost certainly the intruder; waiting 2 s for the IFF
+would let him pass).
 
 Robot positions come from the robots' own localization (TF), threats from
 /threats/tracks; no ground truth is used.
@@ -85,6 +88,7 @@ class RobotState:
     escort_phase: str = ''          # lead, handover
     phase_since: float = 0.0
     intercept: Optional[Interception] = None
+    target_xy: Optional[XY] = None   # last known position of the robot's target
 
 
 class InterceptorAllocatorNode(Node):
@@ -115,6 +119,8 @@ class InterceptorAllocatorNode(Node):
         self.declare_parameter('turn_rate', 1.2)            # rad/s, time to turn towards a point
         self.declare_parameter('assumed_speed', 1.3)        # m/s of an intruder only known from an alert
         self.declare_parameter('alert_horizon', 15.0)       # s of the assumed walk considered
+        self.declare_parameter('alert_link_radius', 8.0)    # m, unknown track near an alert is the intruder
+        self.declare_parameter('robot_link_radius', 4.0)    # m, or near the robot investigating the alert
 
         self.frame: str = self.get_parameter('global_frame').value
         self.neutralize_d = float(self.get_parameter('neutralize_distance').value)
@@ -139,6 +145,8 @@ class InterceptorAllocatorNode(Node):
         self.turn_rate = float(self.get_parameter('turn_rate').value)
         self.assumed_speed = float(self.get_parameter('assumed_speed').value)
         self.alert_horizon = float(self.get_parameter('alert_horizon').value)
+        self.alert_link = float(self.get_parameter('alert_link_radius').value)
+        self.robot_link = float(self.get_parameter('robot_link_radius').value)
         self.objective: XY = layout.objective_target
         self.objective_tree = None
         self.mode = self.check_mode(self.get_parameter('mode').value)
@@ -273,9 +281,11 @@ class InterceptorAllocatorNode(Node):
                 self.check_hold(r, now)
             elif r.role == RoleAssignment.ESCORT:
                 self.check_escort(r, now)
-            # Release robots whose target disappeared or turned out friendly.
+            # Release robots whose target disappeared or turned out friendly,
+            # unless the track only changed id (an alert took over the lidar track).
             elif r.track_id and r.track_id not in {t.id for t in threats}:
-                self.release(r)
+                if not self.relink(r, threats):
+                    self.release(r)
 
         if threats:
             self.assign_follow([t for t in threats if self.engageable(t)])
@@ -301,6 +311,9 @@ class InterceptorAllocatorNode(Node):
             t = self.tracks.get(r.track_id)
             if t is None or not r.pose:
                 continue
+            if t.state == Track.STATE_ALERT:
+                t = self.link_alert(r, t, busy)
+            r.target_xy = (t.position.x, t.position.y)
             if self.try_neutralize(r, t):
                 continue
             if t.state == Track.STATE_ALERT:
@@ -320,6 +333,34 @@ class InterceptorAllocatorNode(Node):
                 self.investigate_predictive(r, t)
             else:
                 self.drive_to_track(r, t)
+
+    def relink(self, r: RobotState, threats: List[Track]) -> bool:
+        if r.target_xy is None or r.role in (RoleAssignment.HOLD, RoleAssignment.ESCORT):
+            return False
+        taken = {o.track_id for o in self.robots.values() if o is not r}
+        near = [t for t in threats if t.id not in taken and t.state != Track.STATE_ALERT
+                and math.dist((t.position.x, t.position.y), r.target_xy) <= 1.5]
+        if not near:
+            return False
+        r.track_id = min(near, key=lambda t: math.dist((t.position.x, t.position.y), r.target_xy)).id
+        return True
+
+    def link_alert(self, r: RobotState, alert: Track, busy: set) -> Track:
+        """An unidentified lidar track near the alert (or near the robot investigating
+        it) is taken over at once, before the IFF has decided."""
+        ax, ay = alert.position.x, alert.position.y
+        cands = [t for t in self.tracks.values()
+                 if t.state == Track.STATE_TRACKED and t.classification == Track.CLASS_UNKNOWN
+                 and t.id not in busy and self.inside(t.position.x, t.position.y)
+                 and (math.hypot(t.position.x - ax, t.position.y - ay) <= self.alert_link
+                      or math.hypot(t.position.x - r.pose[0], t.position.y - r.pose[1]) <= self.robot_link)]
+        if not cands:
+            return alert
+        t = min(cands, key=lambda c: math.hypot(c.position.x - r.pose[0], c.position.y - r.pose[1]))
+        self.get_logger().warn(f'{r.name}: alert T{alert.id} -> unidentified lidar track T{t.id}')
+        r.track_id = t.id
+        busy.add(t.id)
+        return t
 
     def try_neutralize(self, r: RobotState, t: Track) -> bool:
         """A robot within neutralize_distance of a confirmed target captures him."""
@@ -471,7 +512,7 @@ class InterceptorAllocatorNode(Node):
 
     def release(self, r: RobotState) -> None:
         self.cancel_goal(r)
-        r.role, r.track_id, r.escort_phase = RoleAssignment.PATROL, 0, ''
+        r.role, r.track_id, r.escort_phase, r.target_xy = RoleAssignment.PATROL, 0, '', None
         r.speed_pub.publish(SpeedLimit(percentage=False, speed_limit=0.0))
         r.patrol_pub.publish(Bool(data=True))
         self.get_logger().info(f'{r.name}: back to PATROL')

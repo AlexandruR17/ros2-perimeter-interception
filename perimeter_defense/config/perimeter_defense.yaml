@@ -73,6 +73,8 @@ interceptor_allocator:
     turn_rate: 1.2            # rad/s, turning time added to the interception ETA
     assumed_speed: 1.3        # m/s, intruder known only from an alert walks to the objective
     alert_horizon: 15.0       # s of that assumed walk considered for the interception
+    alert_link_radius: 8.0    # m, an unidentified lidar track this close to an alert is the intruder
+    robot_link_radius: 4.0    # m, or this close to the robot investigating the alert
 
 iff:
   ros__parameters:
