@@ -152,6 +152,11 @@ def _launch_robot(context, *args, **kwargs):
                                    'bond_timeout': 10.0}],
             output='screen',
         ),
+        # Own position broadcast, so the other robots' lidars do not take it for an intruder.
+        Node(
+            package='perimeter_defense', executable='robot_transponder', namespace=robot,
+            parameters=[sim_time, {'robot': robot}], output='screen',
+        ),
     ]
     if start_patrol:
         actions.append(Node(

@@ -75,6 +75,11 @@ interceptor_allocator:
     alert_horizon: 15.0       # s of that assumed walk considered for the interception
     alert_link_radius: 8.0    # m, an unidentified lidar track this close to an alert is the intruder
     robot_link_radius: 4.0    # m, or this close to the robot investigating the alert
+    guard_distance: 4.0       # m, GUARD waits this far before the objective on the threat's path
+    search_lead: 2.0          # s, SEARCH goes to the prediction of a LOST track this far ahead
+    role_switch_abs: 1.0      # s, roles change only if the new assignment is better by more than
+    role_switch_rel: 0.15     #   max(role_switch_abs, role_switch_rel * cost)
+    infeasible_penalty: 30.0  # s added to the cost of a robot that cannot intercept in time
 
 iff:
   ros__parameters:

@@ -2,6 +2,8 @@
 
 Inputs:  /threats/tracks          tracks from the tracker
          /perimeter/transponders  own personnel transponder fixes (1 Hz, ~1 m error)
+         /fleet/transponders      own UGVs' positions from their localization (5 Hz);
+                                  robots are FRIEND and allowed everywhere
          /perimeter/custody       soldiers escorting a detainee (allowed off their zones)
 Outputs: /threats/classification  TrackArray with id, classification, transponder_id
          /perimeter/alerts        HOSTILE_CONFIRMED once per track,
@@ -48,7 +50,9 @@ class IffNode(Node):
         self.alert_id = 0
 
         self.create_subscription(TrackArray, '/threats/tracks', self.on_tracks, 10)
+        self.robot_ids: set = set()
         self.create_subscription(Transponder, '/perimeter/transponders', self.on_fix, 20)
+        self.create_subscription(Transponder, '/fleet/transponders', self.on_robot_fix, 20)
         self.create_subscription(Custody, '/perimeter/custody', self.on_custody, 10)
         self.class_pub = self.create_publisher(TrackArray, '/threats/classification', 10)
         self.alert_pub = self.create_publisher(Alert, '/perimeter/alerts', 10)
@@ -62,6 +66,10 @@ class IffNode(Node):
 
     def on_fix(self, msg: Transponder) -> None:
         self.fixes[msg.id] = Fix(msg.id, (msg.position.x, msg.position.y), to_sec(msg.header.stamp))
+
+    def on_robot_fix(self, msg: Transponder) -> None:
+        self.robot_ids.add(msg.id)
+        self.on_fix(msg)
 
     def on_custody(self, msg: Custody) -> None:
         # A soldier on an escort duty, and on his way back, may leave his zone.
@@ -94,7 +102,8 @@ class IffNode(Node):
         self.class_pub.publish(out)
 
     def check_zone(self, t: Track, transponder: str, now: float) -> None:
-        if t.state != Track.STATE_TRACKED or self.on_duty_until.get(transponder, -math.inf) > now:
+        if (t.state != Track.STATE_TRACKED or transponder in self.robot_ids
+                or self.on_duty_until.get(transponder, -math.inf) > now):
             return
         # The track position is noisy: tolerate zone_margin around the zones.
         x, y, m = t.position.x, t.position.y, self.zone_margin

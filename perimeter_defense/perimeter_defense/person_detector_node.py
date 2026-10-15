@@ -68,12 +68,14 @@ class PersonDetectorNode(Node):
                                     (info.origin.position.x, info.origin.position.y))
         self.get_logger().info(f'static map {info.width}x{info.height} received')
 
-    def robot_positions(self, exclude: str) -> List[Tuple[float, float]]:
+    def robot_positions(self, exclude: str, stamp) -> List[Tuple[float, float]]:
+        """Positions of the other robots at the time of the scan (a robot at 2 m/s
+        moves 0.6 m in a 0.3 s scan latency)."""
         out = []
         for r in self.robots:
             if r == exclude:
                 continue
-            pose = lookup_pose2d(self.tf_buffer, self.frame, f'{r}/base_link')
+            pose = lookup_pose2d(self.tf_buffer, self.frame, f'{r}/base_link', stamp)
             if pose is not None:
                 out.append((pose[0], pose[1]))
         return out
@@ -96,7 +98,7 @@ class PersonDetectorNode(Node):
             return
         clusters = detect_people(pts_map, (sensor[0], sensor[1]), self.params,
                                  self.static_map.is_static,
-                                 self.robot_positions(robot))
+                                 self.robot_positions(robot, msg.header.stamp))
         self.latest[robot] = (to_sec(msg.header.stamp),
                               [(c.centroid, c.width, c.range, len(c.points)) for c in clusters])
 

@@ -21,7 +21,22 @@ to the detention building at walking pace, waiting when he falls behind,
 stops next to the door, reports the custody (/perimeter/custody) and goes
 back to patrol once he is inside (the lidar no longer sees him). With
 soldiers (escort_by: soldier) the robot HOLDs until a soldier reports that
-he took over. The multi-robot roles (guard, flank) are added in M4.
+he took over.
+
+Multi-robot roles (M4, core/roles.py). Every period the robots that are not
+holding or escorting a captured person get a role:
+  ENGAGE  the behaviour above (INVESTIGATE / INTERCEPT / FOLLOW, and SEARCH
+          for a LOST track: its predicted position search_lead s ahead);
+  GUARD   wait on the shortest path from the most urgent threat to the
+          objective, guard_distance before the objective;
+  FLANK   wait just inside the breach the threat came in by (BLOCK when the
+          threat is only an alert), to cut the retreat.
+Predictive mode keeps one robot on GUARD while two robots are available,
+assigns robots to the most urgent threats (time to the objective) with the
+minimum total interception time, and gives the rest FLANK / BLOCK, with
+hysteresis against role flapping. Naive mode sends every robot after the
+threat closest to it. A guard or flanker that comes within
+neutralize_distance of a hostile person captures him.
 
 Robots defend the inside of the base: people outside the fence are tracked
 (situational awareness) but not engaged, a robot stops following a person
@@ -61,6 +76,7 @@ from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 from perimeter_defense.core.geodesic import GeodesicGrid
+from perimeter_defense.core import roles
 from perimeter_defense.core.interception import Interception, intercept_point, resample_along
 from perimeter_defense.ros_utils import lookup_pose2d, spin_node, to_sec
 from perimeter_defense_msgs.msg import (Custody, PredictedPathArray, RoleAssignment, Track,
@@ -70,6 +86,11 @@ from perimeter_defense_world.geometry import load_layout
 XY = Tuple[float, float]
 THREAT_STATES = (Track.STATE_ALERT, Track.STATE_TRACKED, Track.STATE_LOST)
 MODES = ('predictive', 'naive')
+ROLE_NAMES = {RoleAssignment.PATROL: 'PATROL', RoleAssignment.INTERCEPT: 'INTERCEPT',
+              RoleAssignment.GUARD: 'GUARD', RoleAssignment.FLANK: 'FLANK',
+              RoleAssignment.INVESTIGATE: 'INVESTIGATE', RoleAssignment.SEARCH: 'SEARCH',
+              RoleAssignment.BLOCK: 'BLOCK', RoleAssignment.FOLLOW: 'FOLLOW',
+              RoleAssignment.HOLD: 'HOLD', RoleAssignment.ESCORT: 'ESCORT'}
 
 
 @dataclass
@@ -89,6 +110,9 @@ class RobotState:
     phase_since: float = 0.0
     intercept: Optional[Interception] = None
     target_xy: Optional[XY] = None   # last known position of the robot's target
+    task: str = ''                   # M4 role: ENGAGE, GUARD, FLANK, BLOCK ('' patrolling)
+    ref_id: int = 0                  # threat a GUARD / FLANK / BLOCK robot is placed against
+    eta: float = 0.0                 # s to the current goal
 
 
 class InterceptorAllocatorNode(Node):
@@ -121,6 +145,11 @@ class InterceptorAllocatorNode(Node):
         self.declare_parameter('alert_horizon', 15.0)       # s of the assumed walk considered
         self.declare_parameter('alert_link_radius', 8.0)    # m, unknown track near an alert is the intruder
         self.declare_parameter('robot_link_radius', 4.0)    # m, or near the robot investigating the alert
+        self.declare_parameter('guard_distance', 4.0)       # m before the objective on the threat's path
+        self.declare_parameter('search_lead', 2.0)          # s ahead on the prediction of a LOST track
+        self.declare_parameter('role_switch_abs', 1.0)      # s, hysteresis of the role assignment
+        self.declare_parameter('role_switch_rel', 0.15)
+        self.declare_parameter('infeasible_penalty', 30.0)  # s added when a robot cannot intercept
 
         self.frame: str = self.get_parameter('global_frame').value
         self.neutralize_d = float(self.get_parameter('neutralize_distance').value)
@@ -147,8 +176,17 @@ class InterceptorAllocatorNode(Node):
         self.alert_horizon = float(self.get_parameter('alert_horizon').value)
         self.alert_link = float(self.get_parameter('alert_link_radius').value)
         self.robot_link = float(self.get_parameter('robot_link_radius').value)
+        self.guard_d = float(self.get_parameter('guard_distance').value)
+        self.search_lead = float(self.get_parameter('search_lead').value)
+        self.role_params = roles.RoleParams(
+            switch_abs=float(self.get_parameter('role_switch_abs').value),
+            switch_rel=float(self.get_parameter('role_switch_rel').value),
+            infeasible_penalty=float(self.get_parameter('infeasible_penalty').value))
         self.objective: XY = layout.objective_target
         self.objective_tree = None
+        self.objective_field: Optional[np.ndarray] = None
+        self.origins: Dict[int, XY] = {}      # first position of each track (where it came in)
+        self.aliases: Dict[int, int] = {}     # alert id -> lidar track a robot took over for it
         self.mode = self.check_mode(self.get_parameter('mode').value)
         self.grid: Optional[GeodesicGrid] = None
         self.fields: Dict[str, np.ndarray] = {}           # driving distances from each robot
@@ -222,6 +260,8 @@ class InterceptorAllocatorNode(Node):
                                  bounds=((self.fence_min[0] + c, self.fence_min[1] + c),
                                          (self.fence_max[0] - c, self.fence_max[1] - c)))
         self.objective_tree = self.grid.path_tree(self.objective)
+        if self.objective_tree is not None:
+            self.objective_field = self.objective_tree[0].reshape(self.grid.rows, self.grid.cols)
         self.get_logger().info(f'driving distance grid {self.grid.cols}x{self.grid.rows} '
                                f'at {self.grid.res:.2f} m')
 
@@ -239,6 +279,11 @@ class InterceptorAllocatorNode(Node):
 
     def on_tracks(self, msg: TrackArray) -> None:
         self.tracks = {int(t.id): t for t in msg.tracks}
+        for i, t in self.tracks.items():
+            self.origins.setdefault(i, (t.position.x, t.position.y))
+        for i in [i for i in self.origins if i not in self.tracks]:
+            del self.origins[i]
+        self.aliases = {a: b for a, b in self.aliases.items() if a in self.tracks and b in self.tracks}
 
     def on_custody(self, msg: Custody) -> None:
         self.custody[int(msg.track_id)] = int(msg.state)
@@ -287,52 +332,170 @@ class InterceptorAllocatorNode(Node):
                 if not self.relink(r, threats):
                     self.release(r)
 
-        if threats:
-            self.assign_follow([t for t in threats if self.engageable(t)])
+        self.assign_roles(threats)
         for r in self.robots.values():
             self.publish_role(r)
         self.publish_markers()
 
-    def assign_follow(self, threats: List[Track]) -> None:
-        """The closest available robot (driving distance) takes each threat."""
-        busy = {r.track_id for r in self.robots.values() if r.track_id}
-        for t in threats:
-            if t.id in busy:
+    # -- roles (M4) -----------------------------------------------------------
+    def assign_roles(self, threats: List[Track]) -> None:
+        """Give every available robot a role and drive it accordingly."""
+        free = [r for r in self.robots.values()
+                if r.pose and r.role not in (RoleAssignment.HOLD, RoleAssignment.ESCORT)]
+        engaged = {r.track_id for r in free if r.task == roles.ENGAGE and r.track_id}
+        # An alert whose intruder a robot already took over on the lidar is the same person.
+        targets = [t for t in threats if (self.engageable(t) or t.id in engaged) and t.id not in self.aliases]
+        infos = [roles.ThreatInfo(t.id, t.state != Track.STATE_ALERT, self.time_to_objective(t)) for t in targets]
+        lead = min(targets, key=self.time_to_objective, default=None)
+        guard_goal = self.guard_point(lead) if lead is not None else None
+        by_id = {t.id: t for t in targets}
+        table: Dict[Tuple[str, int], float] = {}
+
+        def engage_time(name: str, tid: int) -> float:
+            if (name, tid) not in table:
+                table[(name, tid)] = self.engage_time(self.robots[name], by_id[tid])
+            return table[(name, tid)]
+
+        def guard_time(name: str) -> float:
+            return self.driving_distance(self.robots[name], guard_goal) / self.planning_speed
+
+        previous = {r.name: (r.task, r.track_id if r.task == roles.ENGAGE else 0) for r in free if r.task}
+        plan = roles.allocate([r.name for r in free], infos, engage_time, guard_time,
+                              self.mode, previous, self.role_params)
+
+        busy = set(engaged)
+        for r in free:
+            task, tid = plan.get(r.name, ('', 0))
+            if not task:
+                if r.task:
+                    self.release(r)
                 continue
-            free = [r for r in self.robots.values() if r.track_id == 0 and r.pose]
-            if not free:
-                break
-            r = min(free, key=lambda r: self.driving_distance(r, (t.position.x, t.position.y)))
-            r.track_id = t.id
-            r.patrol_pub.publish(Bool(data=False))
-        for r in self.robots.values():
-            if r.track_id == 0 or r.role in (RoleAssignment.HOLD, RoleAssignment.ESCORT):
-                continue
-            t = self.tracks.get(r.track_id)
-            if t is None or not r.pose:
-                continue
-            if t.state == Track.STATE_ALERT:
-                t = self.link_alert(r, t, busy)
-            r.target_xy = (t.position.x, t.position.y)
-            if self.try_neutralize(r, t):
-                continue
-            if t.state == Track.STATE_ALERT:
-                role = RoleAssignment.INVESTIGATE
-            elif self.mode == 'predictive':
-                role = RoleAssignment.INTERCEPT
+            if not r.task:
+                r.patrol_pub.publish(Bool(data=False))
+            if task != r.task or (task == roles.ENGAGE and tid != r.track_id):
+                self.get_logger().warn(f'{r.name}: {task} T{tid or lead.id}')
+                r.goal = None
+            r.task = task
+            if task == roles.ENGAGE:
+                if tid != r.track_id:
+                    busy.discard(r.track_id)
+                r.track_id, r.ref_id = tid, 0
+                busy.add(tid)
             else:
-                role = RoleAssignment.FOLLOW
-            if role != r.role:
-                r.role = role
-                names = {RoleAssignment.INVESTIGATE: 'INVESTIGATE', RoleAssignment.INTERCEPT: 'INTERCEPT',
-                         RoleAssignment.FOLLOW: 'FOLLOW'}
-                self.get_logger().warn(f'{r.name}: {names[role]} track T{t.id}')
-            if role == RoleAssignment.INTERCEPT:
-                self.drive_to_intercept(r, t)
-            elif role == RoleAssignment.INVESTIGATE and self.mode == 'predictive':
-                self.investigate_predictive(r, t)
-            else:
-                self.drive_to_track(r, t)
+                busy.discard(r.track_id)
+                r.track_id, r.ref_id, r.target_xy = 0, tid or lead.id, None
+        for r in free:
+            if r.task == roles.ENGAGE:
+                self.engage(r, busy)
+            elif r.task == roles.GUARD:
+                self.guard(r, guard_goal)
+            elif r.task in (roles.FLANK, roles.BLOCK):
+                self.flank(r)
+
+    def time_to_objective(self, t: Track) -> float:
+        """Priority of a threat: time to walk to the objective, at least at assumed_speed."""
+        p = (t.position.x, t.position.y)
+        d = math.inf
+        if self.grid is not None and self.objective_field is not None:
+            d = self.grid.lookup(self.objective_field, p)
+        if math.isinf(d):
+            d = math.dist(p, self.objective)
+        return d / max(math.hypot(t.velocity.x, t.velocity.y), self.assumed_speed)
+
+    def engage_time(self, r: RobotState, t: Track) -> float:
+        """Estimated time for a robot to intercept a threat, for the role assignment."""
+        res = self.plan_intercept(r, t) if self.mode == 'predictive' else None
+        if res is not None:
+            return res.eta + (0.0 if res.feasible else self.role_params.infeasible_penalty)
+        return self.driving_distance(r, (t.position.x, t.position.y)) / self.planning_speed
+
+    def guard_point(self, t: Track) -> XY:
+        """On the shortest path from the threat to the objective, guard_distance before the objective."""
+        if self.grid is None or self.objective_tree is None:
+            return self.clamp_inside(*self.objective)
+        path = self.grid.path_to_goal(self.objective_tree, (t.position.x, t.position.y))
+        if len(path) < 2:
+            return self.clamp_inside(*self.objective)
+        length = sum(math.dist(a, b) for a, b in zip(path, path[1:]))
+        return self.clamp_inside(*roles.point_along(path, max(0.0, length - self.guard_d)))
+
+    def engage(self, r: RobotState, busy: set) -> None:
+        t = self.tracks.get(r.track_id)
+        if t is None:
+            return
+        if t.state == Track.STATE_ALERT:
+            alert_id = t.id
+            t = self.link_alert(r, t, busy)
+            if t.id != alert_id:
+                self.aliases[alert_id] = t.id
+        r.target_xy = (t.position.x, t.position.y)
+        if self.try_neutralize(r, t):
+            return
+        if t.state == Track.STATE_ALERT:
+            role = RoleAssignment.INVESTIGATE
+        elif self.mode == 'naive':
+            role = RoleAssignment.FOLLOW
+        elif t.state == Track.STATE_LOST:
+            role = RoleAssignment.SEARCH
+        else:
+            role = RoleAssignment.INTERCEPT
+        self.set_role(r, role, t.id)
+        if role == RoleAssignment.INTERCEPT:
+            self.drive_to_intercept(r, t)
+        elif role == RoleAssignment.INVESTIGATE and self.mode == 'predictive':
+            self.investigate_predictive(r, t)
+        elif role == RoleAssignment.SEARCH:
+            self.search(r, t)
+        else:
+            self.drive_to_track(r, t)
+
+    def guard(self, r: RobotState, goal: Optional[XY]) -> None:
+        self.set_role(r, RoleAssignment.GUARD, r.ref_id)
+        t = self.tracks.get(r.ref_id)
+        if t is None or goal is None or self.capture_if_close(r, t):
+            return
+        self.hold_position(r, goal, t)
+
+    def flank(self, r: RobotState) -> None:
+        self.set_role(r, RoleAssignment.FLANK if r.task == roles.FLANK else RoleAssignment.BLOCK, r.ref_id)
+        t = self.tracks.get(r.ref_id)
+        if t is None or self.capture_if_close(r, t):
+            return
+        origin = self.origins.get(t.id, (t.position.x, t.position.y))
+        self.hold_position(r, self.clamp_inside(*origin), t)
+
+    def hold_position(self, r: RobotState, goal: XY, t: Track) -> None:
+        """Drive to a waiting position, facing the threat."""
+        r.eta = self.driving_distance(r, goal) / self.planning_speed
+        self.send_goal(r, goal, math.atan2(t.position.y - goal[1], t.position.x - goal[0]))
+
+    def capture_if_close(self, r: RobotState, t: Track) -> bool:
+        """A guard or flanker captures a hostile person who comes within reach."""
+        if t.classification != Track.CLASS_HOSTILE:
+            return False
+        r.track_id = t.id
+        if self.try_neutralize(r, t):
+            return True
+        r.track_id = 0
+        return False
+
+    def search(self, r: RobotState, t: Track) -> None:
+        """LOST track: go where the prediction puts him search_lead s from now."""
+        future = self.paths.get(int(t.id))
+        if future is None or not future[1]:
+            self.drive_to_track(r, t)
+            return
+        dt, points = future
+        age = max(0.0, self.now_s() - to_sec(t.last_update))
+        i = min(len(points) - 1, int(round((age + self.search_lead) / max(dt, 1e-3))))
+        goal = self.clamp_inside(*points[i])
+        r.eta = self.driving_distance(r, goal) / self.planning_speed
+        self.send_goal(r, goal, math.atan2(goal[1] - r.pose[1], goal[0] - r.pose[0]))
+
+    def set_role(self, r: RobotState, role: int, tid: int) -> None:
+        if role != r.role:
+            r.role = role
+            self.get_logger().warn(f'{r.name}: {ROLE_NAMES[role]} track T{tid}')
 
     def relink(self, r: RobotState, threats: List[Track]) -> bool:
         if r.target_xy is None or r.role in (RoleAssignment.HOLD, RoleAssignment.ESCORT):
@@ -370,40 +533,48 @@ class InterceptorAllocatorNode(Node):
         self.neutralize_pub.publish(UInt32(data=int(t.id)))
         self.get_logger().warn(f'{r.name}: track T{t.id} NEUTRALIZED at {dist:.2f} m')
         self.cancel_goal(r)
-        r.role, r.hold_since = RoleAssignment.HOLD, self.now_s()
+        r.role, r.hold_since, r.task, r.ref_id = RoleAssignment.HOLD, self.now_s(), '', 0
         return True
 
     def drive_to_intercept(self, r: RobotState, t: Track) -> None:
         """Predictive mode: go where the target will be when the robot gets there."""
-        tx, ty = t.position.x, t.position.y
-        path = self.paths.get(int(t.id))
-        if path is None or math.hypot(r.pose[0] - tx, r.pose[1] - ty) < self.direct_d:
+        if math.hypot(r.pose[0] - t.position.x, r.pose[1] - t.position.y) < self.direct_d:
             self.drive_to_track(r, t)
             return
-        dt, points = path
-        self.go_intercept(r, t, points, dt)
+        self.go_intercept(r, t)
 
     def investigate_predictive(self, r: RobotState, t: Track) -> None:
         """Alert without lidar contact: cut off the assumed walk to the objective."""
+        self.go_intercept(r, t)
+
+    def target_points(self, t: Track) -> Optional[Tuple[float, List[XY]]]:
+        """Future positions of a threat: its predicted path or, for an alert, the
+        assumed walk from the alert to the objective since the time of the alert."""
+        if t.state != Track.STATE_ALERT:
+            return self.paths.get(int(t.id))
         if self.grid is None or self.objective_tree is None:
-            self.drive_to_track(r, t)
-            return
+            return None
         age = max(0.0, self.now_s() - to_sec(t.last_update))
         route = self.grid.path_to_goal(self.objective_tree, (t.position.x, t.position.y))
         dt = 0.2
         points = resample_along(route, self.assumed_speed, dt, age, self.alert_horizon)
-        if not points:
-            self.drive_to_track(r, t)
-            return
-        self.go_intercept(r, t, points, dt)
+        return (dt, points) if points else None
 
-    def go_intercept(self, r: RobotState, t: Track, points: List[XY], dt: float) -> None:
+    def plan_intercept(self, r: RobotState, t: Track) -> Optional[Interception]:
+        future = self.target_points(t)
+        if future is None or not future[1] or not r.pose:
+            return None
+        dt, points = future
+
         def cost(q: XY) -> float:
             # Driving distance plus the time to turn towards the point, as distance.
             turn = abs(math.remainder(math.atan2(q[1] - r.pose[1], q[0] - r.pose[0]) - r.pose[2], math.tau))
             return self.driving_distance(r, q) + turn / self.turn_rate * self.planning_speed
 
-        res = intercept_point(points, dt, cost, self.planning_speed, self.intercept_margin)
+        return intercept_point(points, dt, cost, self.planning_speed, self.intercept_margin)
+
+    def go_intercept(self, r: RobotState, t: Track) -> None:
+        res = self.plan_intercept(r, t)
         if res is None:
             self.drive_to_track(r, t)
             return
@@ -422,6 +593,7 @@ class InterceptorAllocatorNode(Node):
         else:
             gx, gy = tx, ty
         gx, gy = self.clamp_inside(gx, gy)
+        r.eta = self.driving_distance(r, (gx, gy)) / self.planning_speed
         self.send_goal(r, (gx, gy), math.atan2(ty - r.pose[1], tx - r.pose[0]))
 
     # -- Nav2 ---------------------------------------------------------------
@@ -513,6 +685,7 @@ class InterceptorAllocatorNode(Node):
     def release(self, r: RobotState) -> None:
         self.cancel_goal(r)
         r.role, r.track_id, r.escort_phase, r.target_xy = RoleAssignment.PATROL, 0, '', None
+        r.task, r.ref_id, r.eta = '', 0, 0.0
         r.speed_pub.publish(SpeedLimit(percentage=False, speed_limit=0.0))
         r.patrol_pub.publish(Bool(data=True))
         self.get_logger().info(f'{r.name}: back to PATROL')
@@ -521,11 +694,13 @@ class InterceptorAllocatorNode(Node):
         msg = RoleAssignment()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame
-        msg.robot, msg.role, msg.track_id = r.name, r.role, r.track_id
+        msg.robot, msg.role, msg.track_id = r.name, r.role, r.track_id or r.ref_id
         if r.goal:
             msg.goal.x, msg.goal.y = r.goal
         if r.intercept is not None:
             msg.eta = float(r.intercept.eta)
+        elif r.role != RoleAssignment.PATROL:
+            msg.eta = float(r.eta)
         self.role_pub.publish(msg)
 
     def publish_markers(self) -> None:

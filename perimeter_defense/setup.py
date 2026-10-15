@@ -24,6 +24,7 @@ setup(
             'tracker = perimeter_defense.tracker_node:main',
             'iff = perimeter_defense.iff_node:main',
             'interceptor_allocator = perimeter_defense.interceptor_allocator_node:main',
+            'robot_transponder = perimeter_defense.robot_transponder_node:main',
         ],
     },
 )
