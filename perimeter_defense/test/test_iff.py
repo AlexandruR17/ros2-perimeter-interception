@@ -97,3 +97,28 @@ def test_single_match_of_a_passer_by_is_not_enough():
     soldier.update([view(5, (0.0, 0.0))], [Fix('SLD-1', (0.3, 0.2), 0.0)], 0.0)
     res = soldier.update([view(5, (0.0, 0.0))], [Fix('SLD-1', (-0.4, 0.5), 1.0)], 1.0)
     assert res[5].classification == FRIEND
+
+
+def test_robot_fix_marks_a_robot_track_friend():
+    """A robot body the detector did not remove is recognised from the robot's own fix."""
+    iff = IffClassifier(IffParams(min_matches=1))
+    res = iff.update([view(1, (3.0, 3.0))], [Fix('LUP-1', (3.3, 3.1), 0.0, robot=True)], 0.0)
+    assert res[1].classification == FRIEND and res[1].transponder == 'LUP-1'
+
+
+def test_robot_fix_does_not_befriend_the_intruder_it_chases():
+    """The intruder 1 m from the robot about to capture him is not the robot."""
+    iff = IffClassifier(IffParams(min_matches=1, robot_gate=0.6))
+    res = iff.update([view(1, (4.0, 0.0))], [Fix('LUP-2', (3.0, 0.0), 0.0, robot=True)], 0.0)
+    assert res[1].classification == UNKNOWN
+    # A soldier's transponder (1 m error) at the same distance would match.
+    res = iff.update([view(2, (4.0, 5.0))], [Fix('SLD-1', (3.0, 5.0), 0.0)], 0.0)
+    assert res[2].classification == FRIEND
+
+
+def test_robot_fix_never_matches_a_hostile_track():
+    iff = IffClassifier(IffParams(min_matches=1, hostile_after=0.0))
+    iff.update([view(1, (0.0, 0.0))], [], 0.0)
+    assert iff.tracks[1].classification == HOSTILE
+    res = iff.update([view(1, (0.0, 0.0))], [Fix('LUP-3', (0.2, 0.0), 0.1, robot=True)], 0.1)
+    assert res[1].classification == HOSTILE

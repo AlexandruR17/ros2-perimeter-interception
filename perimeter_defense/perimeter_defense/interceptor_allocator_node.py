@@ -344,7 +344,8 @@ class InterceptorAllocatorNode(Node):
                 if r.pose and r.role not in (RoleAssignment.HOLD, RoleAssignment.ESCORT)]
         engaged = {r.track_id for r in free if r.task == roles.ENGAGE and r.track_id}
         # An alert whose intruder a robot already took over on the lidar is the same person.
-        targets = [t for t in threats if (self.engageable(t) or t.id in engaged) and t.id not in self.aliases]
+        targets = [t for t in threats if (self.engageable(t) or t.id in engaged)
+                   and self.aliases.get(t.id) not in engaged]
         infos = [roles.ThreatInfo(t.id, t.state != Track.STATE_ALERT, self.time_to_objective(t)) for t in targets]
         lead = min(targets, key=self.time_to_objective, default=None)
         guard_goal = self.guard_point(lead) if lead is not None else None

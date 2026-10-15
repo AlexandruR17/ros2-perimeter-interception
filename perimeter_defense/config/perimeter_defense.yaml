@@ -89,6 +89,7 @@ iff:
     max_fix_age: 1.5          # s
     friend_hold: 3.0          # s a track stays FRIEND after its last transponder match
     hostile_after: 2.0        # s of lidar tracking without transponder -> HOSTILE
+    robot_gate: 0.6           # m, robot position fix to track (robots never match a HOSTILE track)
     zone_alert_cooldown: 30.0 # s between UNAUTHORIZED_ZONE alerts of one soldier
     zone_margin: 1.5          # m tolerated around the authorized zones (track noise)
     return_time: 60.0         # s a soldier may stay off his zone after a detention

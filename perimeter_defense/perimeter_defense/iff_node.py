@@ -69,7 +69,7 @@ class IffNode(Node):
 
     def on_robot_fix(self, msg: Transponder) -> None:
         self.robot_ids.add(msg.id)
-        self.on_fix(msg)
+        self.fixes[msg.id] = Fix(msg.id, (msg.position.x, msg.position.y), to_sec(msg.header.stamp), robot=True)
 
     def on_custody(self, msg: Custody) -> None:
         # A soldier on an escort duty, and on his way back, may leave his zone.

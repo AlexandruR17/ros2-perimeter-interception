@@ -17,6 +17,12 @@ Classification of a track:
   UNKNOWN  otherwise (fence or spot report only, or too recent to decide)
 Captured (neutralized) tracks keep their class and take no part in the
 association, so a soldier escorting a detainee is not confused with him.
+
+Own robots broadcast their localization like a transponder. Their body is
+already removed by the person detector, so the track closest to a robot fix
+is often the intruder the robot is about to capture: robot fixes therefore
+use a much smaller gate (robot_gate, robots are well localized) and never
+match a track that is already HOSTILE.
 """
 
 from __future__ import annotations
@@ -48,6 +54,7 @@ class IffParams:
     max_fix_age: float = 1.5     # s, older fixes are ignored
     friend_hold: float = 3.0     # s a track stays FRIEND after its last match
     hostile_after: float = 2.0   # s of lidar tracking without transponder -> HOSTILE
+    robot_gate: float = 0.6      # m, max distance between a robot fix and a track
 
 
 @dataclass
@@ -66,6 +73,7 @@ class Fix:
     transponder: str
     position: XY
     stamp: float
+    robot: bool = False          # own UGV (localization) rather than a soldier's transponder
 
 
 @dataclass
@@ -108,7 +116,7 @@ class IffClassifier:
         candidates = [t for t in tracks if t.state in (TRACKED, LOST)]
         fresh = latest_fixes([f for f in fixes if now - f.stamp <= p.max_fix_age])
         if candidates and fresh:
-            cost = np.array([[_fix_distance(t, f, now) for f in fresh] for t in candidates])
+            cost = np.array([[self._cost(t, f, now) for f in fresh] for t in candidates])
             matches, _, _ = associate(cost, p.gate)
             for i, j in matches:
                 info = self.tracks[candidates[i].id]
@@ -133,6 +141,12 @@ class IffClassifier:
             elif info.classification == FRIEND:
                 info.classification, info.transponder = UNKNOWN, ''
         return self.tracks
+
+    def _cost(self, t: TrackView, f: Fix, now: float) -> float:
+        d = _fix_distance(t, f, now)
+        if f.robot and (d > self.params.robot_gate or self.tracks[t.id].classification == HOSTILE):
+            return math.inf
+        return d
 
 
 def latest_fixes(fixes: Sequence[Fix]) -> List[Fix]:
