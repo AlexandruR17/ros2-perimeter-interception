@@ -541,6 +541,14 @@ of a captured person is merged into it, so the escort does not create new
 tracks. Inside the detention building the person is hidden from the lidars;
 the track is deleted and the board keeps the entry as DETAINED.
 
+## Background research
+
+[`docs/research/state_of_practice.md`](docs/research/state_of_practice.md)
+summarises public documents on robotic and sensor-based installation
+security in the United States and in Ukraine, the policy framework for
+autonomy in the use of force, and known weaknesses of the DDS middleware,
+and maps each finding to a design decision of this project.
+
 ## Individual contribution
 
 The individual contribution of the author is the `perimeter_defense` package:
