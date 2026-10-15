@@ -24,7 +24,7 @@ physical security side.
 | M1 | Realistic world, generated Nav2 maps, one UGV with Nav2 + AMCL patrolling waypoints | done |
 | M2 | Intruder actor, fence sensor, lidar person detector, tracker, IFF, one robot following the track, capture and robot escort to detention, status board; optional soldiers on foot | done |
 | M3 | Predictive interception with one robot, naive mode, runtime switch, RViz and dashboard markers | done |
-| M4 | Three namespaced robots, role allocation, scenario S1 | planned |
+| M4 | Three robots with roles (engage, guard, flank/block, search), robot-robot recognition; transport robot for the escort next | in progress |
 | M5 | Own personnel in authorized zones, threat assessor, false alarm scenario S2 (soldiers, transponders and IFF already in M2) | planned |
 | M6 | Multi-target tracking, two intruders, diversion (S3, S4) | planned |
 | M7 | Batch evaluation, CSV and plots | planned |
@@ -118,8 +118,9 @@ evaluation package for metrics.
 | **`fence_sensor`** | / | `/perimeter/breach_<b>/scan` | `/perimeter/fence_alert` |
 | **`person_detector`** | / | `/lupN/scan`, `/map`, `/tf` | `/perimeter/detections` |
 | **`tracker`** | / | `/perimeter/detections`, `/perimeter/fence_alert`, `/perimeter/spot_reports`, `/threats/neutralize`, `/threats/classification`, `/map` | `/threats/tracks` (10 Hz), `/threats/predicted_paths`, `/threats/markers` |
-| **`iff`** | / | `/threats/tracks`, `/perimeter/transponders`, `/perimeter/custody` | `/threats/classification`, `/perimeter/alerts` |
-| **`interceptor_allocator`** | / | `/threats/tracks`, `/perimeter/custody`, `/tf` | `/lupN/navigate_to_pose`, `/lupN/patrol_enable`, `/lupN/speed_limit`, `/threats/neutralize`, `/fleet/roles` |
+| **`robot_transponder`** | /lupN | `/tf` | `/fleet/transponders` (own position, 5 Hz) |
+| **`iff`** | / | `/threats/tracks`, `/perimeter/transponders`, `/fleet/transponders`, `/perimeter/custody` | `/threats/classification`, `/perimeter/alerts` |
+| **`interceptor_allocator`** | / | `/threats/tracks`, `/threats/predicted_paths`, `/perimeter/custody`, `/map`, `/c2/mode`, `/tf` | `/lupN/navigate_to_pose`, `/lupN/patrol_enable`, `/lupN/speed_limit`, `/threats/neutralize`, `/fleet/roles` |
 
 Nodes in bold are the individual contribution. Topics under `/sim/` carry
 simulation ground truth and are only used by the scenario scripts and the
@@ -355,6 +356,69 @@ catches him at the depot or on the way out. The guard role at the objective
 (M4) addresses this, and the batch evaluation (M7) compares the modes over
 many runs.
 
+## M4: three robots with roles
+
+```bash
+ros2 launch perimeter_defense_bringup m2_track.launch.py robots:=lup1,lup2,lup3
+ros2 launch perimeter_defense_bringup m2_track.launch.py robots:=lup1,lup2,lup3 mode:=naive
+```
+
+Every 0.3 s the robots that are not holding or escorting a captured person
+get a role (`perimeter_defense/core/roles.py`, unit tested):
+
+| Role | Behaviour |
+|---|---|
+| ENGAGE | INVESTIGATE an alert, INTERCEPT a lidar track (M3), SEARCH a LOST track at its prediction 2 s ahead; FOLLOW in naive mode |
+| GUARD | waits on the shortest path from the most urgent threat to the objective, 4 m before the objective |
+| FLANK / BLOCK | waits just inside the breach the threat came in by (BLOCK while it is only an alert), to cut the retreat |
+
+Predictive mode ranks the threats by their time to the objective (driving
+distance at the threat's speed, at least 1.3 m/s), keeps one robot on GUARD
+whenever two robots are available, assigns the remaining robots to the most
+urgent threats with the minimum total interception time (exhaustive search,
+the fleet is small; a robot that cannot get ahead of the threat gets a 30 s
+penalty) and gives the robots left over FLANK / BLOCK. The previous
+assignment is kept unless the new one is better by more than
+max(1 s, 15 %), so roles do not flap. Naive mode sends every robot after the
+threat closest to it, nobody guards. A guard or flanker that comes within
+1 m of a hostile person captures him. The dashboard and `/fleet/roles` show
+the role and the ETA of every robot.
+
+### Robots seeing robots
+
+With three robots the lidars see each other, and the first runs had the
+robots capturing each other while the intruder reached the depot. Three
+causes and fixes:
+
+1. **Scan latency.** The person detector removes the returns around the
+   other robots, but used their latest position: a robot at 2 m/s moves
+   0.6 m during the scan latency. It now uses their pose at the scan time.
+2. **Recognition.** Every robot broadcasts its own position from its
+   localization on `/fleet/transponders` (`robot_transponder` node, 5 Hz)
+   and the IFF associates it like a soldier's transponder, so a robot body
+   the detector missed is FRIEND. The robot's own body is already removed,
+   so the track closest to a robot fix is often the intruder the robot is
+   about to capture: robot fixes use a 0.6 m gate (robots are well
+   localized) and never match a HOSTILE track. A robot whose radio link is
+   jammed loses this recognition; this is the subject of milestone C
+   (recognition without communications).
+3. **Heading lag in fast turns.** A few degrees of heading error move a wall
+   10 m away by a metre, off the static map, where it looks like a person.
+   Scans taken while the robot turns faster than 0.8 rad/s are dropped.
+
+First comparison, three robots on their sector patrols, single runs each
+(the batch evaluation in M7 repeats them):
+
+| Route, start delay | Predictive with roles | Naive |
+|---|---|---|
+| west, 12 s | captured before the depot | reached the depot, captured there |
+| east, 12 s | captured before the depot | reached the depot, captured there |
+| west, 25 s | captured before the depot | captured before the depot |
+
+In the six runs the IFF still declared 0 to 3 false hostile tracks per run
+(down from about 10 before the fixes), and one of them led to a false
+capture in a naive run; the false alarm rate is one of the metrics of M7.
+
 ## C2 web dashboard
 
 Starts with every M2 launch (`dashboard:=false` to disable). It needs
@@ -559,6 +623,7 @@ The individual contribution of the author is the `perimeter_defense` package:
 | `person_detector_node` | M2 |
 | `tracker_node` (with prediction and markers) | M2 |
 | `interceptor_allocator_node` | M2 follow mode and hold until custody; predictive/naive in M3, roles in M4 |
+| `robot_transponder_node` | M4 (own position broadcast for the IFF) |
 | `iff_node` | M2 (transponders, one-to-one association, zone alerts) |
 | `threat_assessor_node` | M5 |
 
