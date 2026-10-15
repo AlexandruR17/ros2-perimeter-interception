@@ -282,7 +282,8 @@ predictive interception comes in M3, the guard role at the objective in M4.
 If nothing moves (the intruder stays WAITING, the robots stand still), check
 that no Gazebo server is left over from an earlier run: two servers publish
 the same clock and topics. The launch refuses to start in that case and
-prints the PID; stop it with `pkill -f "gz sim"`.
+prints the PID; stop it with `pkill -9 -f "gz sim"` (if it still survives,
+`wsl --shutdown` from Windows restarts WSL).
 
 ```bash
 ros2 topic echo /perimeter/fence_alert

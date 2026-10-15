@@ -32,7 +32,16 @@ def _running_gazebo() -> list:
         out = subprocess.run(['pgrep', '-f', 'gz sim .*fob3_'], capture_output=True, text=True, check=False)
     except OSError:
         return []
-    return [p for p in out.stdout.split() if p.strip()]
+    return [p for p in out.stdout.split() if p.strip() and _alive(p)]
+
+
+def _alive(pid: str) -> bool:
+    """False for zombie (defunct) processes: they hold no topics and cannot be killed."""
+    try:
+        with open(f'/proc/{pid}/stat', encoding='utf-8') as f:
+            return f.read().rsplit(')', 1)[1].split()[0] != 'Z'
+    except (OSError, IndexError):
+        return False
 
 
 def _gazebo(context, *args, **kwargs):
@@ -40,7 +49,7 @@ def _gazebo(context, *args, **kwargs):
     if old:
         # Two servers publish the same clock and topics: everything freezes or jumps.
         msg = (f'A Gazebo server of this world is still running (PID {", ".join(old)}), left over '
-               'from an earlier run. Stop it first:  pkill -f "gz sim"   then launch again.')
+               'from an earlier run. Stop it first:  pkill -9 -f "gz sim"   then launch again.')
         return [LogInfo(msg='ERROR: ' + msg), Shutdown(reason=msg)]
     world_pkg = get_package_share_directory('perimeter_defense_world')
     variant = LaunchConfiguration('world_variant').perform(context)
