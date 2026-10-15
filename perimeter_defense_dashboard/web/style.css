@@ -224,3 +224,17 @@ body.night .map-label { color: var(--strong); }
 body.night .leaflet-marker-pane, body.night .entity .sym, body.night .selection .head svg {
   filter: grayscale(1) sepia(1) hue-rotate(-40deg) saturate(6) brightness(0.85);
 }
+
+/* Exercise umpire banner (objective compromised, exfiltrated, captured, detained). */
+.umpire {
+  position: absolute; left: 6%; right: 6%; top: 34%; z-index: 900; text-align: center; cursor: pointer;
+  background: rgba(5, 6, 5, 0.88); border: 3px solid var(--hostile); padding: 18px 10px 12px;
+}
+.umpire.good { border-color: var(--ok); }
+.umpire.blink { animation: umpire-blink 0.8s steps(2, start) 5; }
+@keyframes umpire-blink { to { border-color: transparent; } }
+.umpire-tag { font-size: 13px; letter-spacing: 0.4em; color: var(--dim); }
+.umpire-title { font-size: 64px; font-weight: 600; letter-spacing: 0.12em; color: var(--hostile); line-height: 1.1; }
+.umpire.good .umpire-title { color: var(--ok); }
+.umpire-sub { font-size: 14px; color: var(--strong); margin-top: 6px; }
+.umpire-hint { font-size: 11px; color: var(--dim); margin-top: 8px; letter-spacing: 0.2em; }

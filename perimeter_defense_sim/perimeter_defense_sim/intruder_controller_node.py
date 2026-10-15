@@ -3,14 +3,20 @@
 Walks from its spawn point outside the fence through a breach and along the
 west or east route to the ammunition depot entrance, following an A* path on
 the base map. It switches to running once the defense has a track on it
-(within detect_radius of its true position), stops when a robot gets within
-capture_distance (surrender) or when it reaches the target. A captured
+(within detect_radius of its true position) and stops when a robot gets
+within capture_distance (surrender). At the target he spends dwell_time
+(the objective is compromised), then runs back out through the breach he
+came in by; outside the fence he has escaped (exfiltrated). A captured
 intruder waits. When the UGV that captured him reports the escort
 (/perimeter/custody, ESCORTING by LUP-n within 2.5 m of him) he walks behind
 it and, once it stops next to the detention door, walks into the cell and
 stays there (detained). In the scenario with soldiers the soldier who takes
 him over sends his actor name on /sim/actors/<name>/escort and "cell" at the
 door.
+
+The exercise outcome (objective compromised, exfiltrated, captured,
+detained) is announced on /sim/exercise/events for the exercise control
+displays (RViz banner, dashboard umpire banner).
 
 Uses the actor's true pose (/sim/actors/<name>/pose) and the robots' true
 poses (/sim/ground_truth/<robot>/pose): this is the scenario script, not part
@@ -19,6 +25,7 @@ of the defense algorithms.
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Dict, List, Optional, Tuple
 
@@ -26,6 +33,7 @@ import rclpy
 from geometry_msgs.msg import Pose, Vector3
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
 from perimeter_defense_msgs.msg import Custody, Track, TrackArray
@@ -52,6 +60,8 @@ class IntruderControllerNode(Node):
         self.declare_parameter('robots', ['lup1', 'lup2', 'lup3'])
         self.declare_parameter('lookahead', 0.6)
         self.declare_parameter('follow_distance', 1.2)    # m behind the escort
+        self.declare_parameter('dwell_time', 4.0)         # s at the objective before leaving
+        self.declare_parameter('exfiltrate', True)        # leave through the entry breach
 
         g = lambda n: self.get_parameter(n).value   # noqa: E731
         self.actor: str = g('actor')
@@ -71,10 +81,16 @@ class IntruderControllerNode(Node):
         self.escort_pose: Optional[XY] = None
         self.escort_robot: str = ''
         self.robot_stop: Optional[XY] = layout.detention.robot_stop if layout.detention else None
+        self.dwell = float(g('dwell_time'))
+        self.exfiltrate = bool(g('exfiltrate'))
+        self.layout = layout
+        self.at_target_since: Optional[float] = None
 
         spawn = layout.intruder_spawns[g('spawn')]
-        waypoints = [spawn] + self.route_waypoints(layout, g('spawn'), g('route')) + [self.target]
-        self.path = plan_route(GridPlanner(layout), waypoints)
+        self.route_wps = self.route_waypoints(layout, g('spawn'), g('route'))
+        self.spawn: XY = spawn
+        self.planner = GridPlanner(layout)
+        self.path = plan_route(self.planner, [spawn] + self.route_wps + [self.target])
         self.seg = 0
         self.pose: Optional[XY] = None
         self.robot_poses: Dict[str, XY] = {}
@@ -85,6 +101,9 @@ class IntruderControllerNode(Node):
 
         self.cmd_pub = self.create_publisher(Vector3, f'/actor/{self.actor}/cmd_vel', 10)
         self.state_pub = self.create_publisher(String, f'/sim/actors/{self.actor}/state', 10)
+        latched = QoSProfile(depth=20, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             reliability=ReliabilityPolicy.RELIABLE)
+        self.event_pub = self.create_publisher(String, '/sim/exercise/events', latched)
         self.create_subscription(Pose, f'/sim/actors/{self.actor}/pose', self.on_pose, 10)
         for robot in self.robots:
             self.create_subscription(Pose, f'/sim/ground_truth/{robot}/pose',
@@ -151,10 +170,18 @@ class IntruderControllerNode(Node):
     def on_escort_pose(self, msg: Pose) -> None:
         self.escort_pose = (msg.position.x, msg.position.y)
 
+    EVENTS = {'reached_target': 'OBJECTIVE_COMPROMISED', 'escaped': 'EXFILTRATED',
+              'captured': 'CAPTURED', 'detained': 'DETAINED'}
+
     def set_state(self, state: str) -> None:
         if state != self.state:
             self.state = state
             self.get_logger().info(f'{self.actor}: {state}')
+            if state in self.EVENTS:
+                self.event_pub.publish(String(data=json.dumps({
+                    't': round(self.now_s(), 2), 'actor': self.actor, 'event': self.EVENTS[state],
+                    'x': round(self.pose[0], 2) if self.pose else None,
+                    'y': round(self.pose[1], 2) if self.pose else None})))
         self.state_pub.publish(String(data=state))
 
     def send(self, vx: float, vy: float) -> None:
@@ -196,19 +223,33 @@ class IntruderControllerNode(Node):
                 self.send((self.cell[0] - self.pose[0]) / d * 0.8, (self.cell[1] - self.pose[1]) / d * 0.8)
                 self.set_state(self.state)
             return
-        if self.state in ('captured', 'detained'):
+        if self.state in ('captured', 'detained', 'escaped'):
             self.send(0.0, 0.0)
             self.set_state(self.state)
             return
         if any(math.dist(self.pose, p) <= self.capture_d for p in self.robot_poses.values()):
-            # Also after reaching the target (the attack succeeded, he surrenders).
-            if self.state == 'reached_target':
-                self.get_logger().warn(f'{self.actor}: captured at the target')
+            # Also after reaching the target or on the way out (he surrenders).
+            if self.state in ('reached_target', 'exfiltrating'):
+                self.get_logger().warn(f'{self.actor}: captured after reaching the objective')
             self.set_state('captured')
             self.send(0.0, 0.0)
             return
-        if self.state == 'reached_target' or math.dist(self.pose, self.target) <= self.target_r:
+        if self.state in ('waiting', 'walking', 'running') and math.dist(self.pose, self.target) <= self.target_r:
+            self.at_target_since = now
+            self.get_logger().warn(f'{self.actor}: OBJECTIVE COMPROMISED')
             self.set_state('reached_target')
+        if self.state == 'reached_target':
+            self.send(0.0, 0.0)
+            self.set_state(self.state)
+            if self.exfiltrate and now - self.at_target_since >= self.dwell:
+                # Back out through the breach he came in by, running.
+                self.path = plan_route(self.planner, [self.pose] + self.route_wps[::-1] + [self.spawn])
+                self.seg, self.running = 0, True
+                self.set_state('exfiltrating')
+            return
+        if self.state == 'exfiltrating' and math.dist(self.pose, self.spawn) < 0.6:
+            self.get_logger().warn(f'{self.actor}: ESCAPED through the breach')
+            self.set_state('escaped')
             self.send(0.0, 0.0)
             return
 
@@ -220,7 +261,10 @@ class IntruderControllerNode(Node):
         d = math.hypot(dx, dy) or 1e-6
         speed = self.run if self.running else self.walk
         self.send(dx / d * speed, dy / d * speed)
-        self.set_state('running' if self.running else 'walking')
+        if self.state != 'exfiltrating':
+            self.set_state('running' if self.running else 'walking')
+        else:
+            self.set_state(self.state)
 
     def follow_escort(self) -> None:
         if self.escort_pose is None:

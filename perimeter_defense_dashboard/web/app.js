@@ -40,7 +40,7 @@ const app = {
   cfg: null, map: null, ros: null, connected: false,
   states: [], storedT: -Infinity, current: null, live: true, replayT: null,
   selected: null, filter: 'ALL', search: '',
-  seen: new Set(), alerts: [], acks: new Map(), audit: [],
+  seen: new Set(), alerts: [], acks: new Map(), audit: [], umpireSeen: new Set(),
   layers: {}, groups: {}, markers: new Map(), truth: [],
   operator: '',
 };
@@ -150,9 +150,9 @@ function drawGrid() {
   }
   for (let y = startY; y <= y1; y += 10) {
     L.polyline([ll(x0, y), ll(x1, y)], style).addTo(g);
-    g.addLayer(label(c.fence.min[0] - 5.5, y + 0.9, pad(geo.n + y, 5), 'grid'));
+    g.addLayer(label(c.fence.min[0] - 2.9, y + 0.9, pad(geo.n + y, 5), 'grid'));
   }
-  g.addLayer(label(c.fence.min[0] - 5.5, c.fence.min[1] - 2.2, `${geo.gzd} ${geo.sq}`, 'grid'));
+  g.addLayer(label(c.fence.min[0] - 2.9, c.fence.min[1] - 2.2, `${geo.gzd} ${geo.sq}`, 'grid'));
 }
 
 function drawBase() {
@@ -423,6 +423,36 @@ function salute(c, t, x, y, status, speed) {
   ].join('\n');
 }
 
+/* ---------- exercise umpire banner ---------- */
+const UMPIRE = {
+  OBJECTIVE_COMPROMISED: ['OBIECTIV COMPROMIS', 'Intrusul a ajuns la depozitul de muniție', false],
+  EXFILTRATED: ['INTRUS EXFILTRAT', 'A părăsit baza prin breșa pe care a intrat', false],
+  CAPTURED: ['INTRUS CAPTURAT', 'Imobilizat de UGV', true],
+  DETAINED: ['INTRUS REȚINUT', 'Închis în clădirea de arest', true],
+};
+function onExerciseEvent(msg) {
+  let ev;
+  try { ev = JSON.parse(msg.data); } catch (e) { return; }
+  const u = UMPIRE[ev.event];
+  if (!u) return;
+  const key = `${ev.actor}/${ev.event}/${ev.t}`;
+  if (app.umpireSeen.has(key)) return;   // latched topic: repeated on reconnect
+  app.umpireSeen.add(key);
+  const [title, sub, good] = u;
+  const where = ev.x !== null && ev.x !== undefined ? ` · ${mgrsOf(ev.x, ev.y)}` : '';
+  const box = $('umpire');
+  box.className = 'umpire blink' + (good ? ' good' : '');
+  $('umpire-title').textContent = title;
+  $('umpire-sub').textContent = `${sub} · ${ev.actor.toUpperCase()} · T+${mmss(ev.t)}${where}`;
+  box.hidden = false;
+  clearTimeout(app.umpireTimer);
+  app.umpireTimer = setTimeout(() => { box.hidden = true; }, good ? 8000 : 20000);
+  app.alerts.unshift({id: `X${app.umpireSeen.size}`, t: ev.t, kind: 'EXERCISE', severity: good ? 'INFO' : 'CRITICAL',
+                      text: `[ARBITRU] ${title}`, track: 0, pos: ev.x !== null ? [ev.x, ev.y] : null});
+  if (good) app.acks.set(app.alerts[0].id, {auto: true});
+  renderAlerts(); renderTimeline();
+}
+
 /* ---------- alerts and audit ---------- */
 function ingestEvents(events) {
   let fresh = false;
@@ -449,9 +479,9 @@ function renderAlerts() {
   }).join('');
 }
 function ack(id) {
-  const a = app.alerts.find((x) => x.id === id);
-  if (!a || app.acks.has(id)) return;
-  app.acks.set(id, {op: app.operator || '-', at: dtg()});
+  const a = app.alerts.find((x) => String(x.id) === String(id));
+  if (!a || app.acks.has(a.id)) return;
+  app.acks.set(a.id, {op: app.operator || '-', at: dtg()});
   addAudit(`ACK "${a.text}"`);
   renderAlerts();
 }
@@ -559,6 +589,8 @@ function connect() {
     const state = new ROSLIB.Topic({ros: app.ros, name: '/c2/state', messageType: 'std_msgs/String',
                                     throttle_rate: 200, queue_length: 1});
     state.subscribe(onState);
+    new ROSLIB.Topic({ros: app.ros, name: '/sim/exercise/events', messageType: 'std_msgs/String'})
+      .subscribe(onExerciseEvent);
     app.logTopic = new ROSLIB.Topic({ros: app.ros, name: '/c2/operator_log', messageType: 'std_msgs/String'});
     if (app.layers.truth) subscribeTruth();
     updateLink();
@@ -638,10 +670,10 @@ function setupUI() {
 
   $('alerts').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-ack]');
-    if (b) { ack(+b.dataset.ack); return; }
+    if (b) { ack(b.dataset.ack); return; }
     const row = e.target.closest('.alert');
     if (!row) return;
-    const a = app.alerts.find((x) => x.id === +row.dataset.id);
+    const a = app.alerts.find((x) => String(x.id) === row.dataset.id);
     if (a && a.track) select('C:' + a.track);
     if (a && a.pos) app.map.panTo(ll(a.pos[0], a.pos[1]));
   });
@@ -674,6 +706,7 @@ function setupUI() {
   $('layers-btn').addEventListener('click', () => { menu.hidden = !menu.hidden; });
 
   $('live-btn').addEventListener('click', goLive);
+  $('umpire').addEventListener('click', () => { $('umpire').hidden = true; });
   const track = $('tl-track');
   let dragging = false;
   track.addEventListener('mousedown', (e) => { dragging = true; replayAt(e.clientX); });

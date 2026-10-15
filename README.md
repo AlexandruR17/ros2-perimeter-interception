@@ -268,9 +268,21 @@ entrance.
   and cannot stop the intruder; the closest free soldier takes a captured
   intruder over from the robot and escorts him instead.
 
-In follow mode with one robot the intruder often reaches the depot first (he
-is then captured there); predictive interception comes in M3, the guard role
-at the objective in M4.
+If the intruder reaches the depot entrance, the objective is compromised: he
+stays there for 4 s, then runs back out through the breach he came in by. A
+robot can still capture him on the way out; once outside the fence he has
+escaped. The exercise outcome (objective compromised, exfiltrated, captured,
+detained) is published on `/sim/exercise/events` and shown as a large umpire
+banner over the base in RViz and over the map in the dashboard ("ARBITRU
+EXERCIȚIU"); it is exercise control information, not used by the defense.
+
+In follow mode with one robot the intruder often reaches the depot first;
+predictive interception comes in M3, the guard role at the objective in M4.
+
+If nothing moves (the intruder stays WAITING, the robots stand still), check
+that no Gazebo server is left over from an earlier run: two servers publish
+the same clock and topics. The launch refuses to start in that case and
+prints the PID; stop it with `pkill -f "gz sim"`.
 
 ```bash
 ros2 topic echo /perimeter/fence_alert
