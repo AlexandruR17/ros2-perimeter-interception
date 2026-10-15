@@ -4,12 +4,16 @@ For each robot scan: transform the returns to the map frame with the robot's
 own localization (TF), drop returns explained by the static map, returns of
 own robots and returns beyond the detection radius, cluster the rest and keep
 person-sized clusters. A scan whose returns do not line up with the static
-map (the robot's localization is wrong) is not used. Detections from all robots are fused in the map frame
-and published at a fixed rate.
+map (the robot's localization is wrong) is not used, nor a scan taken while
+the robot turns faster than max_yaw_rate: the heading estimate lags during
+fast turns, and a few degrees of heading error move a wall 10 m away by a
+metre, off the static map, where it looks like a person. Detections from all
+robots are fused in the map frame and published at a fixed rate.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional, Tuple
 
 from nav_msgs.msg import OccupancyGrid
@@ -21,7 +25,7 @@ from tf2_ros import Buffer, TransformListener
 from perimeter_defense.core.clustering import (DetectorParams, detect_people, fuse_detections,
                                                map_consistency, scan_to_points, transform_points)
 from perimeter_defense.core.static_map import StaticMap
-from perimeter_defense.ros_utils import lookup_pose2d, spin_node, to_sec
+from perimeter_defense.ros_utils import lookup_pose2d, spin_node, to_sec, to_stamp
 from perimeter_defense_msgs.msg import Detection, DetectionArray
 
 
@@ -34,6 +38,8 @@ class PersonDetectorNode(Node):
         self.declare_parameter('rate', 10.0)
         self.declare_parameter('max_scan_age', 0.3)
         self.declare_parameter('fusion_radius', 0.8)
+        self.declare_parameter('max_yaw_rate', 0.8)       # rad/s, scans taken while turning faster are dropped
+        self.declare_parameter('yaw_rate_window', 0.2)    # s over which the turn rate is measured
         defaults = DetectorParams()
         for name in defaults.__dataclass_fields__:
             self.declare_parameter(name, getattr(defaults, name))
@@ -44,6 +50,8 @@ class PersonDetectorNode(Node):
         self.frame: str = self.get_parameter('global_frame').value
         self.max_age = float(self.get_parameter('max_scan_age').value)
         self.fusion_radius = float(self.get_parameter('fusion_radius').value)
+        self.max_yaw_rate = float(self.get_parameter('max_yaw_rate').value)
+        self.yaw_window = float(self.get_parameter('yaw_rate_window').value)
 
         self.static_map: Optional[StaticMap] = None
         self.tf_buffer = Buffer()
@@ -86,6 +94,13 @@ class PersonDetectorNode(Node):
         sensor = lookup_pose2d(self.tf_buffer, self.frame, msg.header.frame_id, msg.header.stamp)
         if sensor is None:
             return
+        before = lookup_pose2d(self.tf_buffer, self.frame, msg.header.frame_id,
+                               to_stamp(to_sec(msg.header.stamp) - self.yaw_window), max_latest_age=0.0)
+        if before is not None:
+            rate = abs(math.remainder(sensor[2] - before[2], math.tau)) / self.yaw_window
+            if rate > self.max_yaw_rate:
+                self.latest.pop(robot, None)
+                return
         pts, _ = scan_to_points(msg.ranges, msg.angle_min, msg.angle_increment,
                                 max(msg.range_min, self.params.min_range), msg.range_max)
         pts_map = transform_points(pts, *sensor)
