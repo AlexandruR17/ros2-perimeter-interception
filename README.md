@@ -363,6 +363,13 @@ ros2 launch perimeter_defense_bringup m2_track.launch.py robots:=lup1,lup2,lup3
 ros2 launch perimeter_defense_bringup m2_track.launch.py robots:=lup1,lup2,lup3 mode:=naive
 ```
 
+Three robots run about 50 ROS processes. On WSL2 the default multicast
+discovery does not find all of them (some nodes never see each other, the
+robots never localize and do not appear in RViz). Add
+`discovery_server:=true`: the launch then starts a Fast DDS discovery server
+and every process uses it. Command line tools need the same setting
+(`export ROS_DISCOVERY_SERVER=127.0.0.1:11811 ROS_SUPER_CLIENT=TRUE`).
+
 Every 0.3 s the robots that are not holding or escorting a captured person
 get a role (`perimeter_defense/core/roles.py`, unit tested):
 

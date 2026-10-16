@@ -8,13 +8,19 @@ With soldiers:=true three soldiers walk around the base: they carry
 transponders (recognised as FRIEND), radio spot reports when they see the
 intruder, and escort a captured intruder to the detention building instead
 of the UGV.
+
+With discovery_server:=true a Fast DDS discovery server is started first and
+every process of the launch uses it. Needed on machines where the default
+multicast discovery does not find all the ~50 processes of three robots
+(seen on WSL2: some nodes never discover each other, robots never localize).
 """
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, TimerAction
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction,
+                            SetEnvironmentVariable, TimerAction)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -76,6 +82,12 @@ def _launch(context, *args, **kwargs):
     if soldiers:
         actions.append(TimerAction(period=3.0, actions=[
             include('soldiers.launch.py', {'soldiers': ','.join(soldiers), 'intruders': 'intruder1'})]))
+    if g('discovery_server').lower() == 'true':
+        port = g('discovery_port')
+        return [SetEnvironmentVariable('ROS_DISCOVERY_SERVER', f'127.0.0.1:{port}'),
+                ExecuteProcess(cmd=['fastdds', 'discovery', '-i', '0', '-l', '127.0.0.1', '-p', port],
+                               name='discovery_server', output='screen'),
+                TimerAction(period=1.0, actions=actions)]
     return actions
 
 
@@ -99,5 +111,8 @@ def generate_launch_description() -> LaunchDescription:
                               description='C2 web dashboard on http://localhost:8080'),
         DeclareLaunchArgument('start_delay', default_value='15.0',
                               description='s before the intruder starts walking'),
+        DeclareLaunchArgument('discovery_server', default_value='false',
+                              description='start a Fast DDS discovery server and use it (WSL2, many robots)'),
+        DeclareLaunchArgument('discovery_port', default_value='11811'),
         OpaqueFunction(function=_launch),
     ])
