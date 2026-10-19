@@ -17,7 +17,7 @@ layout_markers:
 
 fleet_markers:
   ros__parameters:
-    rate: 5.0                    # Hz
+    rate: 15.0                   # Hz, symbols follow the robots smoothly
     symbol_width: 3.0            # m, friendly unit frame drawn on the map
     symbol_height: 2.0           # m
     heading_length: 2.5          # m

@@ -37,6 +37,7 @@ class PatrolNode(Node):
         self.declare_parameter('start_index', 1)
         self.declare_parameter('retry_delay', 2.0)
         self.declare_parameter('enabled', True)
+        self.declare_parameter('response_timeout', 5.0)   # s without an answer to a goal: resend
 
         route_name: str = self.get_parameter('route_name').value or self.get_namespace().strip('/')
         zones_file: str = self.get_parameter('zones_file').value
@@ -49,6 +50,9 @@ class PatrolNode(Node):
         self.retry_delay: float = self.get_parameter('retry_delay').value
         self.index: int = int(self.get_parameter('start_index').value) % len(self.route)
         self.enabled: bool = self.get_parameter('enabled').value
+        self.response_timeout = float(self.get_parameter('response_timeout').value)
+        self.sent_at = 0.0
+        self.seq = 0          # number of the latest goal; answers to older goals are ignored
 
         self.client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.speed_pub = self.create_publisher(SpeedLimit, 'speed_limit', 10)
@@ -83,6 +87,11 @@ class PatrolNode(Node):
         if not self.enabled:
             return
         self.publish_speed_limit()
+        if self.busy and self.goal_handle is None and self.now_s() - self.sent_at > self.response_timeout:
+            # A goal sent while the navigator was still starting can be lost without any
+            # answer; without this the robot would wait for it forever.
+            self.get_logger().warn('no answer to the patrol goal, sending it again')
+            self.busy = False
         if self.busy:
             return
         if self.retry_at is not None and self.now_s() < self.retry_at:
@@ -109,22 +118,29 @@ class PatrolNode(Node):
         goal = NavigateToPose.Goal()
         goal.pose = self.make_pose(self.index)
         self.busy = True
+        self.sent_at = self.now_s()
+        self.seq += 1
+        seq = self.seq
         self.get_logger().info(
             f'patrol waypoint {self.index}: ({goal.pose.pose.position.x:.1f}, '
             f'{goal.pose.pose.position.y:.1f})')
-        self.client.send_goal_async(goal).add_done_callback(self.on_goal_response)
+        self.client.send_goal_async(goal).add_done_callback(lambda f: self.on_goal_response(f, seq))
 
-    def on_goal_response(self, future) -> None:
+    def on_goal_response(self, future, seq: int) -> None:
         handle = future.result()
+        if seq != self.seq:
+            return          # answer to a goal given up and sent again
         if not handle.accepted:
             self.get_logger().warn('patrol goal rejected')
             self.busy = False
             self.retry_at = self.now_s() + self.retry_delay
             return
         self.goal_handle = handle
-        handle.get_result_async().add_done_callback(self.on_result)
+        handle.get_result_async().add_done_callback(lambda f: self.on_result(f, seq))
 
-    def on_result(self, future) -> None:
+    def on_result(self, future, seq: int) -> None:
+        if seq != self.seq:
+            return
         status = future.result().status
         self.goal_handle = None
         self.busy = False

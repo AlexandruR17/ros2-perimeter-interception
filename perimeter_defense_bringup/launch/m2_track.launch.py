@@ -93,12 +93,17 @@ def _launch(context, *args, **kwargs):
         server = ExecuteProcess(cmd=cmd + ['-i', '0', '-l', '127.0.0.1', '-p', port],
                                 name='discovery_server', output='screen')
         # Without the server no node finds any other: stop at once with the reason.
-        stop = RegisterEventHandler(OnProcessExit(target_action=server, on_exit=[
-            LogInfo(msg=f'ERROR: the discovery server stopped (UDP port {port} already in use by '
-                        'another discovery server?). Run: pkill -9 -f fast-discovery; pkill -9 -f fastdds; '
-                        'pkill -9 -f "gz sim" '
-                        'and start again, or choose another port with discovery_port:=11888'),
-            Shutdown(reason='discovery server stopped')]))
+        msg = (f'ERROR: the discovery server stopped (UDP port {port} already in use by another '
+               'discovery server?). Run: pkill -9 -f fast-discovery; pkill -9 -f fastdds; pkill -9 -f "gz sim" '
+               'and start again, or choose another port with discovery_port:=11888')
+
+        def on_exit(event, _context):
+            # A failure exits with an error code; a normal Ctrl+C does not.
+            if event.returncode and event.returncode > 0:
+                return [LogInfo(msg=msg), Shutdown(reason='discovery server stopped')]
+            return None
+
+        stop = RegisterEventHandler(OnProcessExit(target_action=server, on_exit=on_exit))
         return [SetEnvironmentVariable('ROS_DISCOVERY_SERVER', f'127.0.0.1:{port}'),
                 server, stop, TimerAction(period=1.0, actions=actions)]
     return actions

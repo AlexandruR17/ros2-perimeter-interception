@@ -25,7 +25,7 @@ from launch_ros.descriptions import ComposableNode
 
 from perimeter_defense_world.geometry import load_layout
 
-NAV2_NODES = ['controller_server', 'planner_server', 'behavior_server', 'bt_navigator']
+NAV2_NODES = ['controller_server', 'planner_server', 'behavior_server', 'bt_navigator', 'velocity_smoother']
 
 
 def _load_yaml(path: str) -> dict:
@@ -74,7 +74,16 @@ NAV_COMPONENTS = [
     ('nav2_planner', 'nav2_planner::PlannerServer', 'planner_server', 'planner_server'),
     ('nav2_behaviors', 'behavior_server::BehaviorServer', 'behavior_server', 'behavior_server'),
     ('nav2_bt_navigator', 'nav2_bt_navigator::BtNavigator', 'bt_navigator', 'bt_navigator'),
+    ('nav2_velocity_smoother', 'nav2_velocity_smoother::VelocitySmoother', 'velocity_smoother',
+     'velocity_smoother'),
 ]
+# The controller and the behaviors command cmd_vel_nav; the velocity smoother turns it into
+# the cmd_vel the robot receives.
+REMAPS = {
+    'controller_server': [('cmd_vel', 'cmd_vel_nav')],
+    'behavior_server': [('cmd_vel', 'cmd_vel_nav')],
+    'velocity_smoother': [('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')],
+}
 
 
 def _navigation(robot: str, urdf: str, nav2_params: str, amcl_pose: dict, sim_time: dict,
@@ -94,7 +103,8 @@ def _navigation(robot: str, urdf: str, nav2_params: str, amcl_pose: dict, sim_ti
     if composition:
         nodes = [ComposableNode(package='robot_state_publisher', plugin='robot_state_publisher::RobotStatePublisher',
                                 name='robot_state_publisher', namespace=robot, parameters=[rsp, sim_time])]
-        nodes += [ComposableNode(package=pkg, plugin=plugin, name=name, namespace=robot, parameters=params(name))
+        nodes += [ComposableNode(package=pkg, plugin=plugin, name=name, namespace=robot, parameters=params(name),
+                                 remappings=REMAPS.get(name, []))
                   for pkg, plugin, _, name in NAV_COMPONENTS]
         nodes += [ComposableNode(package='nav2_lifecycle_manager', plugin='nav2_lifecycle_manager::LifecycleManager',
                                  name=name, namespace=robot, parameters=[sim_time, p])
@@ -109,7 +119,8 @@ def _navigation(robot: str, urdf: str, nav2_params: str, amcl_pose: dict, sim_ti
 
     out = [Node(package='robot_state_publisher', executable='robot_state_publisher', namespace=robot,
                 parameters=[rsp, sim_time], output='screen')]
-    out += [Node(package=pkg, executable=exe, name=name, namespace=robot, parameters=params(name), output='screen')
+    out += [Node(package=pkg, executable=exe, name=name, namespace=robot, parameters=params(name),
+                 remappings=REMAPS.get(name, []), output='screen')
             for pkg, _, exe, name in NAV_COMPONENTS]
     out += [Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name=name, namespace=robot,
                  parameters=[sim_time, p], output='screen')

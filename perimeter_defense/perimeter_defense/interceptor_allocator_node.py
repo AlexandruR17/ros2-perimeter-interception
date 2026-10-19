@@ -113,6 +113,8 @@ class RobotState:
     task: str = ''                   # M4 role: ENGAGE, GUARD, FLANK, BLOCK ('' patrolling)
     ref_id: int = 0                  # threat a GUARD / FLANK / BLOCK robot is placed against
     eta: float = 0.0                 # s to the current goal
+    vel: Tuple[float, float] = (0.0, 0.0)   # m/s, from successive poses
+    pose_time: float = 0.0
 
 
 class InterceptorAllocatorNode(Node):
@@ -145,6 +147,8 @@ class InterceptorAllocatorNode(Node):
         self.declare_parameter('alert_horizon', 15.0)       # s of the assumed walk considered
         self.declare_parameter('alert_link_radius', 8.0)    # m, unknown track near an alert is the intruder
         self.declare_parameter('robot_link_radius', 4.0)    # m, or near the robot investigating the alert
+        self.declare_parameter('own_robot_radius', 1.2)     # m, a track this close to an own robot ...
+        self.declare_parameter('own_robot_speed_diff', 0.5)  # m/s ... and moving with it is that robot
         self.declare_parameter('guard_distance', 4.0)       # m before the objective on the threat's path
         self.declare_parameter('search_lead', 2.0)          # s ahead on the prediction of a LOST track
         self.declare_parameter('role_switch_abs', 1.0)      # s, hysteresis of the role assignment
@@ -177,6 +181,8 @@ class InterceptorAllocatorNode(Node):
         self.alert_link = float(self.get_parameter('alert_link_radius').value)
         self.robot_link = float(self.get_parameter('robot_link_radius').value)
         self.guard_d = float(self.get_parameter('guard_distance').value)
+        self.own_robot_radius = float(self.get_parameter('own_robot_radius').value)
+        self.own_robot_dv = float(self.get_parameter('own_robot_speed_diff').value)
         self.search_lead = float(self.get_parameter('search_lead').value)
         self.role_params = roles.RoleParams(
             switch_abs=float(self.get_parameter('role_switch_abs').value),
@@ -312,7 +318,12 @@ class InterceptorAllocatorNode(Node):
     # -- main loop ----------------------------------------------------------
     def tick(self) -> None:
         for r in self.robots.values():
-            r.pose = lookup_pose2d(self.tf_buffer, self.frame, f'{r.name}/base_link')
+            pose = lookup_pose2d(self.tf_buffer, self.frame, f'{r.name}/base_link')
+            now = self.now_s()
+            if pose and r.pose and now > r.pose_time:
+                dt = now - r.pose_time
+                r.vel = ((pose[0] - r.pose[0]) / dt, (pose[1] - r.pose[1]) / dt)
+            r.pose, r.pose_time = pose, now
             r.intercept = None
             if r.pose and self.grid is not None:
                 field = self.grid.distances_from(r.pose[:2])
@@ -509,6 +520,18 @@ class InterceptorAllocatorNode(Node):
         r.track_id = min(near, key=lambda t: math.dist((t.position.x, t.position.y), r.target_xy)).id
         return True
 
+    def near_own_robot(self, t: Track, me: RobotState) -> bool:
+        """Blue force deconfliction: a track next to another own robot and moving with it is
+        a lidar ghost of that robot, whatever the IFF says yet."""
+        for o in self.robots.values():
+            if o is me or not o.pose:
+                continue
+            close = math.hypot(o.pose[0] - t.position.x, o.pose[1] - t.position.y) < self.own_robot_radius
+            same_motion = math.hypot(t.velocity.x - o.vel[0], t.velocity.y - o.vel[1]) < self.own_robot_dv
+            if close and same_motion:
+                return True
+        return False
+
     def link_alert(self, r: RobotState, alert: Track, busy: set) -> Track:
         """An unidentified lidar track near the alert (or near the robot investigating
         it) is taken over at once, before the IFF has decided."""
@@ -516,6 +539,7 @@ class InterceptorAllocatorNode(Node):
         cands = [t for t in self.tracks.values()
                  if t.state == Track.STATE_TRACKED and t.classification == Track.CLASS_UNKNOWN
                  and t.id not in busy and self.inside(t.position.x, t.position.y)
+                 and not self.near_own_robot(t, r)
                  and (math.hypot(t.position.x - ax, t.position.y - ay) <= self.alert_link
                       or math.hypot(t.position.x - r.pose[0], t.position.y - r.pose[1]) <= self.robot_link)]
         if not cands:
@@ -530,6 +554,10 @@ class InterceptorAllocatorNode(Node):
         """A robot within neutralize_distance of a confirmed target captures him."""
         dist = math.hypot(r.pose[0] - t.position.x, r.pose[1] - t.position.y)
         if dist > self.neutralize_d or t.state != Track.STATE_TRACKED:
+            return False
+        if self.near_own_robot(t, r):
+            self.get_logger().warn(f'{r.name}: T{t.id} is next to an own robot, not captured',
+                                   throttle_duration_sec=2.0)
             return False
         self.neutralize_pub.publish(UInt32(data=int(t.id)))
         self.get_logger().warn(f'{r.name}: track T{t.id} NEUTRALIZED at {dist:.2f} m')
