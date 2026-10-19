@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Clean start of the simulation, for WSL2 and several robots.
+#
+#   ~/fob3_ws/src/ros2-perimeter-interception/scripts/run_sim.sh            # three robots
+#   ROBOTS=lup2 .../run_sim.sh                                              # one robot
+#   .../run_sim.sh mode:=naive rviz:=false                                  # extra launch arguments
+#
+# 1. stops whatever a previous run left behind (Gazebo, discovery servers,
+#    RViz, ROS daemon) and removes stale Fast DDS shared memory files;
+# 2. clears DDS settings exported by hand in the shell;
+# 3. starts the launch with a Fast DDS discovery server on a free port, so
+#    the ~50 processes of three robots all find each other;
+# 4. after CHECK_AFTER seconds prints whether every robot localized.
+# The full log is in ~/fob3_last.log.
+
+set -u
+ROBOTS=${ROBOTS:-lup1,lup2,lup3}
+CHECK_AFTER=${CHECK_AFTER:-90}
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+WS=${WS:-$(cd "$SCRIPT_DIR/../../.." && pwd)}
+LOG=${LOG:-$HOME/fob3_last.log}
+
+echo "[1/4] stopping leftovers of previous runs"
+for p in "gz sim" "fast-discovery" "fastdds discovery" "rviz2" "_ros2_daemon"; do
+    pkill -9 -f "$p" 2>/dev/null
+done
+sleep 1
+rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null
+
+echo "[2/4] clearing DDS settings of this shell"
+unset FASTDDS_BUILTIN_TRANSPORTS ROS_DISCOVERY_SERVER ROS_SUPER_CLIENT RMW_FASTRTPS_USE_QOS_FROM_XML
+if grep -qE "ROS_DISCOVERY_SERVER|ROS_SUPER_CLIENT|FASTDDS_BUILTIN_TRANSPORTS" "$HOME/.bashrc" 2>/dev/null; then
+    echo "      note: ~/.bashrc still sets DDS variables; remove them with:"
+    echo "      sed -i '/ROS_DISCOVERY_SERVER/d; /ROS_SUPER_CLIENT/d; /FASTDDS_BUILTIN_TRANSPORTS/d' ~/.bashrc"
+fi
+
+PORT=11811
+while ss -lun 2>/dev/null | grep -q ":$PORT "; do
+    PORT=$((PORT + 1))
+done
+echo "[3/4] discovery server on UDP port $PORT, robots: $ROBOTS"
+
+if [ ! -f "$WS/install/setup.bash" ]; then
+    echo "ERROR: $WS/install/setup.bash not found; build first (cd $WS && colcon build)" >&2
+    exit 1
+fi
+set +u      # the ROS setup scripts use unset variables
+# shellcheck disable=SC1091
+source "$WS/install/setup.bash"
+set -u
+
+n_robots=$(echo "$ROBOTS" | tr ',' '\n' | grep -c .)
+(
+    sleep "$CHECK_AFTER"
+    active=$(grep -c "lifecycle_manager_localization.*Managed nodes are active" "$LOG")
+    echo
+    echo "============================================================"
+    if [ "$active" -ge "$n_robots" ]; then
+        echo " [4/4] OK: $active of $n_robots robots localized."
+        echo "       RViz and http://localhost:8080 (F5) should show them."
+    else
+        echo " [4/4] PROBLEM: only $active of $n_robots robots localized after ${CHECK_AFTER} s."
+        echo "       Send the output of:"
+        echo "       grep -E 'process has died|Server is running|Managed nodes are active' $LOG"
+    fi
+    echo "============================================================"
+) &
+CHECKER=$!
+
+ros2 launch perimeter_defense_bringup m2_track.launch.py robots:="$ROBOTS" \
+    discovery_server:=true discovery_port:="$PORT" headless:=true "$@" 2>&1 | tee "$LOG"
+kill "$CHECKER" 2>/dev/null

@@ -126,7 +126,9 @@ def _launch_robot(context, *args, **kwargs):
         Node(
             package='nav2_lifecycle_manager', executable='lifecycle_manager',
             name='lifecycle_manager_localization', namespace=robot,
-            parameters=[sim_time, {'autostart': True, 'node_names': ['amcl']}],
+            # A generous bond timeout: with three robots starting at once AMCL can take more
+            # than the default 4 s to answer, and the manager would give up for good.
+            parameters=[sim_time, {'autostart': True, 'node_names': ['amcl'], 'bond_timeout': 20.0}],
             output='screen',
         ),
         Node(
@@ -149,7 +151,7 @@ def _launch_robot(context, *args, **kwargs):
             package='nav2_lifecycle_manager', executable='lifecycle_manager',
             name='lifecycle_manager_navigation', namespace=robot,
             parameters=[sim_time, {'autostart': True, 'node_names': NAV2_NODES,
-                                   'bond_timeout': 10.0}],
+                                   'bond_timeout': 20.0}],
             output='screen',
         ),
         # Own position broadcast, so the other robots' lidars do not take it for an intruder.

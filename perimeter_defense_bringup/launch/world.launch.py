@@ -154,7 +154,7 @@ def generate_launch_description() -> LaunchDescription:
             package='nav2_lifecycle_manager', executable='lifecycle_manager',
             name='lifecycle_manager_map',
             parameters=[{'use_sim_time': True, 'autostart': True,
-                         'node_names': ['map_server', 'map_server_localization']}],
+                         'node_names': ['map_server', 'map_server_localization'], 'bond_timeout': 20.0}],
             output='screen',
         ),
     ])
