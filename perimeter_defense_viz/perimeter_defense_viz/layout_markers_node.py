@@ -46,7 +46,13 @@ class LayoutMarkersNode(Node):
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                          reliability=ReliabilityPolicy.RELIABLE)
         self.pub = self.create_publisher(MarkerArray, '/perimeter/layout_markers', qos)
-        self.pub.publish(self.build())
+        self.markers = self.build()
+        self.pub.publish(self.markers)
+        # Also republished periodically: an RViz started later, or one whose discovery of
+        # this publisher was late (many processes, discovery server), still gets the layout.
+        self.declare_parameter('republish_period', 5.0)
+        self.create_timer(float(self.get_parameter('republish_period').value),
+                          lambda: self.pub.publish(self.markers))
         self.get_logger().info('layout markers published')
 
     def build(self) -> MarkerArray:
