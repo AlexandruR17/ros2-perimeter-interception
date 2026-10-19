@@ -57,14 +57,18 @@ def _gazebo(context, *args, **kwargs):
     lite = LaunchConfiguration('quality').perform(context).lower() == 'low'
     world = os.path.join(world_pkg, 'worlds', f'fob3_{variant}{"_lite" if lite else ""}.sdf')
     actors = _actors_sdf(LaunchConfiguration('actors').perform(context))
-    if actors:
-        # Actors are part of the world file: actors spawned while the sensors'
-        # rendering scene is still loading are not visible to the lidars.
-        with open(world, 'r', encoding='utf-8') as f:
-            sdf = f.read().replace('  </world>', actors + '\n  </world>')
-        fd, world = tempfile.mkstemp(prefix='fob3_scenario_', suffix='.sdf')
-        with os.fdopen(fd, 'w') as f:
-            f.write(sdf)
+    # The ROS clock comes from the ClockThrottle system (perimeter_defense_gz_plugins) at
+    # 1 / clock_period Hz instead of every physics step, see _world_bridge_config.
+    clock = ('    <plugin filename="ClockThrottle" name="perimeter_defense::ClockThrottle">\n'
+             f'      <topic>/clock_ros</topic><period>{float(LaunchConfiguration("clock_period").perform(context))}'
+             '</period>\n    </plugin>\n')
+    # Actors are part of the world file: actors spawned while the sensors'
+    # rendering scene is still loading are not visible to the lidars.
+    with open(world, 'r', encoding='utf-8') as f:
+        sdf = f.read().replace('  </world>', clock + actors + '\n  </world>')
+    fd, world = tempfile.mkstemp(prefix='fob3_scenario_', suffix='.sdf')
+    with os.fdopen(fd, 'w') as f:
+        f.write(sdf)
     gz_args = f'-r -s --headless-rendering {world}' if headless else f'-r {world}'
     return [IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
@@ -99,7 +103,7 @@ def _world_bridge_config() -> str:
     """Bridge for the clock, the breach sensors and the ground truth poses."""
     layout = load_layout()
     entries = [
-        {'ros_topic_name': '/clock', 'gz_topic_name': '/clock',
+        {'ros_topic_name': '/clock', 'gz_topic_name': '/clock_ros',
          'ros_type_name': 'rosgraph_msgs/msg/Clock', 'gz_type_name': 'gz.msgs.Clock',
          'direction': 'GZ_TO_ROS'},
     ]
@@ -127,6 +131,8 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('quality', default_value='high',
                               description='high, or low for integrated/software GPUs '
                                           '(no shadows, no tree rows; same sensors and physics)'),
+        DeclareLaunchArgument('clock_period', default_value='0.004',
+                              description='s of simulation time between two ROS /clock messages'),
         DeclareLaunchArgument('actors', default_value='',
                               description='scenario actors, "name:spawn,name:spawn"'),
         AppendEnvironmentVariable('GZ_SIM_RESOURCE_PATH', os.path.join(world_pkg, 'models')),

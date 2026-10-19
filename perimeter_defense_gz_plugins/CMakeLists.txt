@@ -27,5 +27,14 @@ target_link_libraries(ActorDriver
 )
 install(TARGETS ActorDriver LIBRARY DESTINATION lib)
 
+add_library(ClockThrottle SHARED src/ClockThrottle.cc)
+target_link_libraries(ClockThrottle
+  gz-sim::core
+  gz-plugin::register
+  gz-transport::core
+  gz-msgs::core
+)
+install(TARGETS ClockThrottle LIBRARY DESTINATION lib)
+
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/hooks/${PROJECT_NAME}.dsv.in")
 ament_package()

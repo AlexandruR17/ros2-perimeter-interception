@@ -3,6 +3,11 @@
 All nodes run in the robot namespace (/lup1, ...). TF frames are prefixed
 with the namespace (lup1/base_link, lup1/odom) and published on the global
 /tf, so every robot localises in the shared 'map' frame.
+
+With composition:=true (default) robot_state_publisher, AMCL, the Nav2
+servers and their lifecycle managers run as components of one container
+process per robot instead of eight processes: three robots start faster
+and need about a gigabyte less memory.
 """
 
 import math
@@ -15,7 +20,8 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.descriptions import ComposableNode
 
 from perimeter_defense_world.geometry import load_layout
 
@@ -61,6 +67,56 @@ def _bridge_config(robot: str, camera: bool) -> str:
     return _write_tmp(f'{robot}_bridge_', yaml.safe_dump(cfg))
 
 
+# (package, plugin, executable, node name) of the navigation stack of one robot.
+NAV_COMPONENTS = [
+    ('nav2_amcl', 'nav2_amcl::AmclNode', 'amcl', 'amcl'),
+    ('nav2_controller', 'nav2_controller::ControllerServer', 'controller_server', 'controller_server'),
+    ('nav2_planner', 'nav2_planner::PlannerServer', 'planner_server', 'planner_server'),
+    ('nav2_behaviors', 'behavior_server::BehaviorServer', 'behavior_server', 'behavior_server'),
+    ('nav2_bt_navigator', 'nav2_bt_navigator::BtNavigator', 'bt_navigator', 'bt_navigator'),
+]
+
+
+def _navigation(robot: str, urdf: str, nav2_params: str, amcl_pose: dict, sim_time: dict,
+                composition: bool) -> list:
+    """robot_state_publisher, AMCL, the Nav2 servers and their lifecycle managers."""
+    rsp = {'robot_description': urdf, 'frame_prefix': f'{robot}/'}
+    # A generous bond timeout: with three robots starting at once a server can take more
+    # than the default 4 s to answer, and the manager would give up for good.
+    managers = [
+        ('lifecycle_manager_localization', {'autostart': True, 'node_names': ['amcl'], 'bond_timeout': 20.0}),
+        ('lifecycle_manager_navigation', {'autostart': True, 'node_names': NAV2_NODES, 'bond_timeout': 20.0}),
+    ]
+
+    def params(name: str) -> list:
+        return [nav2_params, amcl_pose] if name == 'amcl' else [nav2_params]
+
+    if composition:
+        nodes = [ComposableNode(package='robot_state_publisher', plugin='robot_state_publisher::RobotStatePublisher',
+                                name='robot_state_publisher', namespace=robot, parameters=[rsp, sim_time])]
+        nodes += [ComposableNode(package=pkg, plugin=plugin, name=name, namespace=robot, parameters=params(name))
+                  for pkg, plugin, _, name in NAV_COMPONENTS]
+        nodes += [ComposableNode(package='nav2_lifecycle_manager', plugin='nav2_lifecycle_manager::LifecycleManager',
+                                 name=name, namespace=robot, parameters=[sim_time, p])
+                  for name, p in managers]
+        # Isolated container: one executor (thread) per component, as Nav2 recommends. The
+        # parameter file is also given to the container process, so the nodes the servers
+        # create inside (local_costmap, global_costmap) get their parameters too.
+        return [ComposableNodeContainer(name='nav_container', namespace=robot, package='rclcpp_components',
+                                        executable='component_container_isolated',
+                                        parameters=[nav2_params, sim_time],
+                                        composable_node_descriptions=nodes, output='screen')]
+
+    out = [Node(package='robot_state_publisher', executable='robot_state_publisher', namespace=robot,
+                parameters=[rsp, sim_time], output='screen')]
+    out += [Node(package=pkg, executable=exe, name=name, namespace=robot, parameters=params(name), output='screen')
+            for pkg, _, exe, name in NAV_COMPONENTS]
+    out += [Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name=name, namespace=robot,
+                 parameters=[sim_time, p], output='screen')
+            for name, p in managers]
+    return out
+
+
 def _launch_robot(context, *args, **kwargs):
     robot = LaunchConfiguration('robot').perform(context)
     camera = LaunchConfiguration('enable_camera').perform(context).lower() == 'true'
@@ -93,14 +149,9 @@ def _launch_robot(context, *args, **kwargs):
 
     amcl_pose = {'initial_pose.x': x, 'initial_pose.y': y, 'initial_pose.yaw': yaw}
     sim_time = {'use_sim_time': True}
+    composition = LaunchConfiguration('composition').perform(context).lower() == 'true'
 
     actions = [
-        Node(
-            package='robot_state_publisher', executable='robot_state_publisher',
-            namespace=robot,
-            parameters=[{'robot_description': urdf, 'frame_prefix': f'{robot}/'}, sim_time],
-            output='screen',
-        ),
         Node(
             package='ros_gz_sim', executable='create', name='spawn', namespace=robot,
             arguments=['-world', 'fob3', '-name', robot, '-topic', f'/{robot}/robot_description',
@@ -119,47 +170,13 @@ def _launch_robot(context, *args, **kwargs):
                         {'odom_frame': f'{robot}/odom', 'base_frame': f'{robot}/base_link'}],
             output='screen',
         ),
-        Node(
-            package='nav2_amcl', executable='amcl', name='amcl', namespace=robot,
-            parameters=[nav2_params, amcl_pose], output='screen',
-        ),
-        Node(
-            package='nav2_lifecycle_manager', executable='lifecycle_manager',
-            name='lifecycle_manager_localization', namespace=robot,
-            # A generous bond timeout: with three robots starting at once AMCL can take more
-            # than the default 4 s to answer, and the manager would give up for good.
-            parameters=[sim_time, {'autostart': True, 'node_names': ['amcl'], 'bond_timeout': 20.0}],
-            output='screen',
-        ),
-        Node(
-            package='nav2_controller', executable='controller_server', namespace=robot,
-            parameters=[nav2_params], output='screen',
-        ),
-        Node(
-            package='nav2_planner', executable='planner_server', name='planner_server',
-            namespace=robot, parameters=[nav2_params], output='screen',
-        ),
-        Node(
-            package='nav2_behaviors', executable='behavior_server', name='behavior_server',
-            namespace=robot, parameters=[nav2_params], output='screen',
-        ),
-        Node(
-            package='nav2_bt_navigator', executable='bt_navigator', name='bt_navigator',
-            namespace=robot, parameters=[nav2_params], output='screen',
-        ),
-        Node(
-            package='nav2_lifecycle_manager', executable='lifecycle_manager',
-            name='lifecycle_manager_navigation', namespace=robot,
-            parameters=[sim_time, {'autostart': True, 'node_names': NAV2_NODES,
-                                   'bond_timeout': 20.0}],
-            output='screen',
-        ),
-        # Own position broadcast, so the other robots' lidars do not take it for an intruder.
-        Node(
-            package='perimeter_defense', executable='robot_transponder', namespace=robot,
-            parameters=[sim_time, {'robot': robot}], output='screen',
-        ),
     ]
+    actions += _navigation(robot, urdf, nav2_params, amcl_pose, sim_time, composition)
+    # Own position broadcast, so the other robots' lidars do not take it for an intruder.
+    actions.append(Node(
+        package='perimeter_defense', executable='robot_transponder', namespace=robot,
+        parameters=[sim_time, {'robot': robot}], output='screen',
+    ))
     if start_patrol:
         actions.append(Node(
             package='perimeter_defense_sim', executable='patrol', namespace=robot,
@@ -174,6 +191,8 @@ def _launch_robot(context, *args, **kwargs):
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robot', default_value='lup1', description='robot namespace'),
+        DeclareLaunchArgument('composition', default_value='true',
+                              description='run the navigation nodes as components of one process'),
         DeclareLaunchArgument('enable_camera', default_value='false'),
         DeclareLaunchArgument('start_patrol', default_value='true'),
         DeclareLaunchArgument('patrol_route', default_value='',
