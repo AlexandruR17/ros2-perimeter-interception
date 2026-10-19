@@ -90,7 +90,8 @@ def _launch(context, *args, **kwargs):
         # Without the server no node finds any other: stop at once with the reason.
         stop = RegisterEventHandler(OnProcessExit(target_action=server, on_exit=[
             LogInfo(msg=f'ERROR: the discovery server stopped (UDP port {port} already in use by '
-                        'another fastdds or simulation?). Run: pkill -9 -f fastdds; pkill -9 -f "gz sim" '
+                        'another discovery server?). Run: pkill -9 -f fast-discovery; pkill -9 -f fastdds; '
+                        'pkill -9 -f "gz sim" '
                         'and start again, or choose another port with discovery_port:=11888'),
             Shutdown(reason='discovery server stopped')]))
         return [SetEnvironmentVariable('ROS_DISCOVERY_SERVER', f'127.0.0.1:{port}'),
