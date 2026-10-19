@@ -19,8 +19,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction,
-                            SetEnvironmentVariable, TimerAction)
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, LogInfo,
+                            OpaqueFunction, RegisterEventHandler, SetEnvironmentVariable, Shutdown, TimerAction)
+from launch.event_handlers import OnProcessExit
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -84,10 +85,16 @@ def _launch(context, *args, **kwargs):
             include('soldiers.launch.py', {'soldiers': ','.join(soldiers), 'intruders': 'intruder1'})]))
     if g('discovery_server').lower() == 'true':
         port = g('discovery_port')
+        server = ExecuteProcess(cmd=['fastdds', 'discovery', '-i', '0', '-l', '127.0.0.1', '-p', port],
+                                name='discovery_server', output='screen')
+        # Without the server no node finds any other: stop at once with the reason.
+        stop = RegisterEventHandler(OnProcessExit(target_action=server, on_exit=[
+            LogInfo(msg=f'ERROR: the discovery server stopped (UDP port {port} already in use by '
+                        'another fastdds or simulation?). Run: pkill -9 -f fastdds; pkill -9 -f "gz sim" '
+                        'and start again, or choose another port with discovery_port:=11888'),
+            Shutdown(reason='discovery server stopped')]))
         return [SetEnvironmentVariable('ROS_DISCOVERY_SERVER', f'127.0.0.1:{port}'),
-                ExecuteProcess(cmd=['fastdds', 'discovery', '-i', '0', '-l', '127.0.0.1', '-p', port],
-                               name='discovery_server', output='screen'),
-                TimerAction(period=1.0, actions=actions)]
+                server, stop, TimerAction(period=1.0, actions=actions)]
     return actions
 
 
