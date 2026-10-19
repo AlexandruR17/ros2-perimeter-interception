@@ -16,6 +16,7 @@ multicast discovery does not find all the ~50 processes of three robots
 """
 
 import os
+import shutil
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -85,7 +86,11 @@ def _launch(context, *args, **kwargs):
             include('soldiers.launch.py', {'soldiers': ','.join(soldiers), 'intruders': 'intruder1'})]))
     if g('discovery_server').lower() == 'true':
         port = g('discovery_port')
-        server = ExecuteProcess(cmd=['fastdds', 'discovery', '-i', '0', '-l', '127.0.0.1', '-p', port],
+        # The server binary itself: the 'fastdds discovery' wrapper does not pass Ctrl+C on,
+        # and the orphaned server kept the port busy for the next run.
+        exe = shutil.which('fast-discovery-server') or 'fastdds'
+        cmd = [exe] if exe != 'fastdds' else [exe, 'discovery']
+        server = ExecuteProcess(cmd=cmd + ['-i', '0', '-l', '127.0.0.1', '-p', port],
                                 name='discovery_server', output='screen')
         # Without the server no node finds any other: stop at once with the reason.
         stop = RegisterEventHandler(OnProcessExit(target_action=server, on_exit=[
