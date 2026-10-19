@@ -44,6 +44,11 @@ if [ ! -f "$WS/install/setup.bash" ]; then
     echo "ERROR: $WS/install/setup.bash not found; build first (cd $WS && colcon build)" >&2
     exit 1
 fi
+if ! grep -q "discovery_server" "$WS/install/perimeter_defense_bringup/share/perimeter_defense_bringup/launch/m2_track.launch.py"; then
+    echo "ERROR: the installed launch files are old; rebuild first:" >&2
+    echo "       cd $WS && colcon build && source install/setup.bash" >&2
+    exit 1
+fi
 set +u      # the ROS setup scripts use unset variables
 # shellcheck disable=SC1091
 source "$WS/install/setup.bash"
@@ -61,7 +66,7 @@ n_robots=$(echo "$ROBOTS" | tr ',' '\n' | grep -c .)
     else
         echo " [4/4] PROBLEM: only $active of $n_robots robots localized after ${CHECK_AFTER} s."
         echo "       Send the output of:"
-        echo "       grep -E 'process has died|Server is running|Managed nodes are active' $LOG"
+        echo "       grep -E 'process has died|Server is running|Managed nodes are active|Aborting' $LOG"
     fi
     echo "============================================================"
 ) &
