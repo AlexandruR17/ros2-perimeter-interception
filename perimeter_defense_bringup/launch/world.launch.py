@@ -26,6 +26,9 @@ from perimeter_defense_sim.actors import actor_sdf
 from perimeter_defense_world.geometry import load_layout
 
 
+PHYSICS_STEP = 0.004   # s, max_step_size of the worlds
+
+
 def _running_gazebo() -> list:
     """PIDs of Gazebo servers left over from an earlier run of this world."""
     try:
@@ -57,11 +60,12 @@ def _gazebo(context, *args, **kwargs):
     lite = LaunchConfiguration('quality').perform(context).lower() == 'low'
     world = os.path.join(world_pkg, 'worlds', f'fob3_{variant}{"_lite" if lite else ""}.sdf')
     actors = _actors_sdf(LaunchConfiguration('actors').perform(context))
-    # The ROS clock comes from the ClockThrottle system (perimeter_defense_gz_plugins) at
-    # 1 / clock_period Hz instead of every physics step, see _world_bridge_config.
+    # With a clock_period longer than the physics step the ROS clock comes from the
+    # ClockThrottle system (perimeter_defense_gz_plugins), see _world_bridge.
+    period = float(LaunchConfiguration('clock_period').perform(context))
     clock = ('    <plugin filename="ClockThrottle" name="perimeter_defense::ClockThrottle">\n'
-             f'      <topic>/clock_ros</topic><period>{float(LaunchConfiguration("clock_period").perform(context))}'
-             '</period>\n    </plugin>\n')
+             f'      <topic>/clock_ros</topic><period>{period}</period>\n    </plugin>\n'
+             if period > PHYSICS_STEP else '')
     # Actors are part of the world file: actors spawned while the sensors'
     # rendering scene is still loading are not visible to the lidars.
     with open(world, 'r', encoding='utf-8') as f:
@@ -99,11 +103,18 @@ def _actors_sdf(spec: str) -> str:
     return '\n'.join(out)
 
 
-def _world_bridge_config() -> str:
+def _world_bridge(context, *args, **kwargs):
+    throttled = float(LaunchConfiguration('clock_period').perform(context)) > PHYSICS_STEP
+    return [Node(package='ros_gz_bridge', executable='parameter_bridge', name='world_bridge',
+                 parameters=[{'config_file': _world_bridge_config('/clock_ros' if throttled else '/clock')}],
+                 output='screen')]
+
+
+def _world_bridge_config(clock_topic: str) -> str:
     """Bridge for the clock, the breach sensors and the ground truth poses."""
     layout = load_layout()
     entries = [
-        {'ros_topic_name': '/clock', 'gz_topic_name': '/clock_ros',
+        {'ros_topic_name': '/clock', 'gz_topic_name': clock_topic,
          'ros_type_name': 'rosgraph_msgs/msg/Clock', 'gz_type_name': 'gz.msgs.Clock',
          'direction': 'GZ_TO_ROS'},
     ]
@@ -139,11 +150,7 @@ def generate_launch_description() -> LaunchDescription:
         AppendEnvironmentVariable('GZ_SIM_SYSTEM_PLUGIN_PATH', os.path.join(
             get_package_prefix('perimeter_defense_gz_plugins'), 'lib')),
         OpaqueFunction(function=_gazebo),
-        Node(
-            package='ros_gz_bridge', executable='parameter_bridge', name='world_bridge',
-            parameters=[{'config_file': _world_bridge_config()}],
-            output='screen',
-        ),
+        OpaqueFunction(function=_world_bridge),
         Node(
             package='nav2_map_server', executable='map_server', name='map_server',
             parameters=[{'yaml_filename': map_yaml, 'use_sim_time': True,
