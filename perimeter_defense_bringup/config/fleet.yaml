@@ -6,6 +6,13 @@ callsigns:
   lup1: LUP-1
   lup2: LUP-2
   lup3: LUP-3
+  trn1: TRN-1
+
+# Transport UGV: takes captured persons over from the interceptors and escorts them to
+# the detention building, so the interceptor returns to the defense at once.
+transport:
+  robots: [trn1]
+  max_speed: 1.2         # m/s
 
 patrol:
   patrol_speed: 0.8      # m/s

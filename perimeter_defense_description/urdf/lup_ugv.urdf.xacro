@@ -11,6 +11,8 @@
 <robot name="lup_ugv" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="ns" default="lup1"/>
+  <!-- interceptor (LUP) or transport (TRN: same base with a cargo box, sand coloured) -->
+  <xacro:arg name="variant" default="interceptor"/>
   <xacro:arg name="enable_camera" default="true"/>
   <xacro:arg name="lidar_samples" default="720"/>
   <xacro:arg name="lidar_rate" default="10"/>
@@ -46,6 +48,7 @@
   <material name="olive"><color rgba="0.33 0.36 0.24 1"/></material>
   <material name="black"><color rgba="0.08 0.08 0.08 1"/></material>
   <material name="grey"><color rgba="0.45 0.45 0.45 1"/></material>
+  <material name="sand"><color rgba="0.62 0.55 0.38 1"/></material>
 
   <xacro:macro name="box_inertia" params="m x y z">
     <inertia ixx="${m * (y*y + z*z) / 12.0}" ixy="0" ixz="0"
@@ -65,6 +68,14 @@
       <geometry><box size="0.508 0.43 0.03"/></geometry>
       <material name="olive"/>
     </visual>
+    <xacro:if value="${'$(arg variant)' == 'transport'}">
+      <visual>
+        <!-- Cargo box (visual only, below the lidar plane) -->
+        <origin xyz="-0.02 0 ${chassis_z_center + 0.19}"/>
+        <geometry><box size="0.40 0.32 0.24"/></geometry>
+        <material name="sand"/>
+      </visual>
+    </xacro:if>
     <collision>
       <origin xyz="0 0 ${chassis_z_center}"/>
       <geometry><box size="${chassis_x} ${chassis_y} ${chassis_z}"/></geometry>

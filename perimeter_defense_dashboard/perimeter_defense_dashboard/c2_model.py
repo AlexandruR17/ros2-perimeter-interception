@@ -17,7 +17,8 @@ from typing import Deque, Dict, List, Optional, Sequence, Tuple
 XY = Tuple[float, float]
 
 ROLE_NAMES = {0: 'PATROL', 1: 'INTERCEPT', 2: 'GUARD', 3: 'FLANK', 4: 'INVESTIGATE',
-              5: 'SEARCH', 6: 'BLOCK', 7: 'FOLLOW', 8: 'HOLD', 9: 'ESCORT'}
+              5: 'SEARCH', 6: 'BLOCK', 7: 'FOLLOW', 8: 'HOLD', 9: 'ESCORT',
+              10: 'DISPATCH', 11: 'RETURN', 12: 'STANDBY'}
 TRACK_STATES = {0: 'ALERT', 1: 'TRACKED', 2: 'LOST', 3: 'NEUTRALIZED'}
 CLASSES = {0: 'UNKNOWN', 1: 'FRIEND', 2: 'HOSTILE'}
 SEVERITIES = {0: 'INFO', 1: 'WARNING', 2: 'CRITICAL'}

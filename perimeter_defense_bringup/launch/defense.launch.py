@@ -13,6 +13,7 @@ def _launch(context, *args, **kwargs):
     params = os.path.join(get_package_share_directory('perimeter_defense'), 'config',
                           'perimeter_defense.yaml')
     robots = [r for r in LaunchConfiguration('robots').perform(context).split(',') if r]
+    transports = [t for t in LaunchConfiguration('transports').perform(context).split(',') if t]
     mode = LaunchConfiguration('mode').perform(context)
     escort_by = LaunchConfiguration('escort_by').perform(context)
     common = {'use_sim_time': True}
@@ -21,16 +22,18 @@ def _launch(context, *args, **kwargs):
         parameters=[params, common, extra or {}], output='screen')
     return [
         node('fence_sensor'),
-        node('person_detector', {'robots': robots}),
+        node('person_detector', {'robots': robots + transports}),
         node('tracker'),
         node('iff'),
-        node('interceptor_allocator', {'robots': robots, 'mode': mode, 'escort_by': escort_by}),
+        node('interceptor_allocator', {'robots': robots, 'transports': transports or [''], 'mode': mode,
+                                       'escort_by': escort_by}),
     ]
 
 
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robots', default_value='lup1', description='comma separated'),
+        DeclareLaunchArgument('transports', default_value='', description='transport UGVs, comma separated'),
         DeclareLaunchArgument('mode', default_value='predictive', description='predictive or naive'),
         DeclareLaunchArgument('escort_by', default_value='robot', description='robot or soldier'),
         OpaqueFunction(function=_launch),

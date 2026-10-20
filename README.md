@@ -24,7 +24,7 @@ physical security side.
 | M1 | Realistic world, generated Nav2 maps, one UGV with Nav2 + AMCL patrolling waypoints | done |
 | M2 | Intruder actor, fence sensor, lidar person detector, tracker, IFF, one robot following the track, capture and robot escort to detention, status board; optional soldiers on foot | done |
 | M3 | Predictive interception with one robot, naive mode, runtime switch, RViz and dashboard markers | done |
-| M4 | Three robots with roles (engage, guard, flank/block, search), robot-robot recognition; transport robot for the escort next | in progress |
+| M4 | Three robots with roles (engage, guard, flank/block, search), robot-robot recognition, transport robot TRN-1 taking captured persons over | done; multi-robot perception quality open (M6) |
 | M5 | Own personnel in authorized zones, threat assessor, false alarm scenario S2 (soldiers, transponders and IFF already in M2) | planned |
 | M6 | Multi-target tracking, two intruders, diversion (S3, S4) | planned |
 | M7 | Batch evaluation, CSV and plots | planned |
@@ -363,7 +363,18 @@ ros2 launch perimeter_defense_bringup m2_track.launch.py robots:=lup1,lup2,lup3
 ros2 launch perimeter_defense_bringup m2_track.launch.py robots:=lup1,lup2,lup3 mode:=naive
 ```
 
-Three robots run about 50 ROS processes. On WSL2 the default multicast
+Simplest start (stops leftovers of earlier runs, clears stale DDS files,
+uses a discovery server, reports after 90 s whether every robot localized;
+log in `~/fob3_last.log`):
+
+```bash
+~/fob3_ws/src/ros2-perimeter-interception/scripts/run_sim.sh             # 3 interceptors + TRN-1
+~/fob3_ws/src/ros2-perimeter-interception/scripts/run_sim.sh rviz:=false # dashboard only
+```
+
+The navigation stack of each robot runs as components of one process
+(composition), with the Smac 2D planner and the Nav2 velocity smoother.
+Three robots run about 50 ROS processes without composition. On WSL2 the default multicast
 discovery does not find all of them (some nodes never see each other, the
 robots never localize and do not appear in RViz). Add
 `discovery_server:=true`: the launch then starts a Fast DDS discovery server
@@ -390,6 +401,20 @@ max(1 s, 15 %), so roles do not flap. Naive mode sends every robot after the
 threat closest to it, nobody guards. A guard or flanker that comes within
 1 m of a hostile person captures him. The dashboard and `/fleet/roles` show
 the role and the ETA of every robot.
+
+### Transport robot TRN-1
+
+A slower transport UGV (`trn1`, call sign TRN-1, 1.2 m/s, sand coloured
+cargo box) is parked east of the detention building (`patrol_routes.trn1` in
+zones.yaml) and does not patrol. When an interceptor captures a person it
+holds him; the nearest available transport is dispatched (custody
+DISPATCHED), stops next to him on the detention side, takes him over
+(custody ESCORTING by TRN-1, the interceptor goes back to the defense at
+once), escorts him to the detention building and returns to its parking
+place (roles DISPATCH, ESCORT, RETURN, STANDBY on `/fleet/roles`). Without
+a transport, if it is busy, or if it has not arrived within 90 s, the
+interceptor escorts him itself as before. `transports:=''` disables it; with
+soldiers the soldiers escort.
 
 ### Robots seeing robots
 
@@ -421,6 +446,15 @@ First comparison, three robots on their sector patrols, single runs each
 | west, 12 s | captured before the depot | reached the depot, captured there |
 | east, 12 s | captured before the depot | reached the depot, captured there |
 | west, 25 s | captured before the depot | captured before the depot |
+
+Open problem, to be measured and addressed with the multi-target tracking
+work (M6) and the batch evaluation (M7): with several robots moving fast
+the same person can get two or three tracks (the robots see him from
+slightly different positions and scan times), and ghosts of robots 1-2 m
+away from them can still be declared hostile; both can make a robot
+capture the wrong track. A track next to another own robot and moving with
+it is never taken over or captured (blue force deconfliction in the
+allocator).
 
 In the six runs the IFF still declared 0 to 3 false hostile tracks per run
 (down from about 10 before the fixes), and one of them led to a false

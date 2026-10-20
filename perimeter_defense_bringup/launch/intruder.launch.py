@@ -36,7 +36,8 @@ def _launch(context, *args, **kwargs):
              name=f'{name}_controller',
              parameters=[{'use_sim_time': True, 'actor': name, 'spawn': spawn, 'route': route,
                           'start_delay': float(g('start_delay')),
-                          'run_when_detected': g('run_when_detected').lower() == 'true'}],
+                          'run_when_detected': g('run_when_detected').lower() == 'true',
+                          'robots': [r for r in g('robots').split(',') if r]}],
              output='screen'),
     ]
 
@@ -48,5 +49,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('route', default_value='west', description='west or east'),
         DeclareLaunchArgument('start_delay', default_value='10.0'),
         DeclareLaunchArgument('run_when_detected', default_value='true'),
+        DeclareLaunchArgument('robots', default_value='lup1,lup2,lup3',
+                              description='UGVs that can escort him (ground truth poses)'),
         OpaqueFunction(function=_launch),
     ])

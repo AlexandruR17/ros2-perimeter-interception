@@ -49,6 +49,9 @@ def _launch(context, *args, **kwargs):
     soldiers = list(load_layout().soldiers) if g('soldiers').lower() == 'true' else []
     callsigns = [load_layout().soldiers[s].callsign for s in soldiers]
     actors = ','.join(['intruder1:north_breach'] + [f'{s}:soldier' for s in soldiers])
+    # Transport UGVs take captured persons over (not with soldiers, who escort them).
+    transports = [] if soldiers else [t for t in g('transports').split(',') if t]
+    fleet = robots + transports
 
     actions = [
         include('world.launch.py', {'world_variant': g('world_variant'), 'headless': g('headless'),
@@ -57,19 +60,25 @@ def _launch(context, *args, **kwargs):
             *[include('robot.launch.py', {'robot': r, 'enable_camera': g('enable_camera'),
                                           'patrol_route': patrol_route})
               for r in robots],
+            *[include('robot.launch.py', {'robot': t, 'enable_camera': 'false', 'start_patrol': 'false',
+                                          'variant': 'transport'})
+              for t in transports],
             include('intruder.launch.py', {'name': 'intruder1', 'spawn': 'north_breach',
-                                           'route': g('route'), 'start_delay': g('start_delay')}),
+                                           'route': g('route'), 'start_delay': g('start_delay'),
+                                           'robots': ','.join(fleet)}),
         ]),
-        include('defense.launch.py', {'robots': ','.join(robots), 'mode': g('mode'),
+        include('defense.launch.py', {'robots': ','.join(robots), 'transports': ','.join(transports),
+                                      'mode': g('mode'),
                                       'escort_by': 'soldier' if soldiers else 'robot'}),
         Node(package='perimeter_defense_viz', executable='layout_markers', name='layout_markers',
              parameters=[viz_params, {'aerial_variant': g('world_variant'),
                                       'routes': patrol_route or ','.join(robots)}]),
         Node(package='perimeter_defense_viz', executable='fleet_markers', name='fleet_markers',
-             parameters=[viz_params, {'use_sim_time': True, 'robots': robots,
-                                      'callsigns': [r.replace('lup', 'LUP-') for r in robots]}]),
+             parameters=[viz_params, {'use_sim_time': True, 'robots': fleet,
+                                      'callsigns': [callsign(r) for r in fleet]}]),
         Node(package='perimeter_defense_viz', executable='status_board', name='status_board',
-             parameters=[viz_params, {'use_sim_time': True, 'soldiers': ','.join(callsigns)}]),
+             parameters=[viz_params, {'use_sim_time': True, 'soldiers': ','.join(callsigns),
+                                      'robots': fleet, 'callsigns': [callsign(r) for r in fleet]}]),
         # Exercise truth overlay (where the actors really are), for the operator only.
         Node(package='perimeter_defense_sim', executable='truth_markers', name='truth_markers',
              parameters=[{'use_sim_time': True, 'actors': ['intruder1'],
@@ -80,7 +89,8 @@ def _launch(context, *args, **kwargs):
              condition=IfCondition(g('rviz'))),
     ]
     if g('dashboard').lower() == 'true':
-        actions.append(include('dashboard.launch.py', {'robots': ','.join(robots), 'routes': patrol_route}))
+        dashboard_args = {'robots': ','.join(fleet), 'routes': patrol_route or ','.join(robots)}
+        actions.append(include('dashboard.launch.py', dashboard_args))
     if soldiers:
         actions.append(TimerAction(period=3.0, actions=[
             include('soldiers.launch.py', {'soldiers': ','.join(soldiers), 'intruders': 'intruder1'})]))
@@ -109,6 +119,12 @@ def _launch(context, *args, **kwargs):
     return actions
 
 
+def callsign(robot: str) -> str:
+    """lup2 -> LUP-2, trn1 -> TRN-1"""
+    head = robot.rstrip('0123456789')
+    return f'{head.upper()}-{robot[len(head):]}' if head != robot else robot.upper()
+
+
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('world_variant', default_value='day'),
@@ -119,6 +135,9 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('route', default_value='west', description='west or east'),
         DeclareLaunchArgument('robots', default_value='lup2',
                               description='comma separated, e.g. lup1,lup2,lup3'),
+        DeclareLaunchArgument('transports', default_value='trn1',
+                              description="transport UGVs escorting captured persons ('' = the "
+                                          'interceptor escorts them itself)'),
         DeclareLaunchArgument('soldiers', default_value='false',
                               description='own soldiers on foot (spot reports, escort); '
                                           'default: fully robotic base'),

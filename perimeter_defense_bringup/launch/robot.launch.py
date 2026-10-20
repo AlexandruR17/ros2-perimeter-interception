@@ -148,7 +148,10 @@ def _launch_robot(context, *args, **kwargs):
 
     # Robot description.
     mappings = {k: str(v).lower() if isinstance(v, bool) else str(v) for k, v in hw.items()}
-    mappings.update({'ns': robot, 'enable_camera': 'true' if camera else 'false'})
+    variant = LaunchConfiguration('variant').perform(context)
+    mappings.update({'ns': robot, 'enable_camera': 'true' if camera else 'false', 'variant': variant})
+    if variant == 'transport':
+        mappings['max_linear_velocity'] = str(fleet['transport']['max_speed'])
     urdf = xacro.process_file(os.path.join(desc_pkg, 'urdf', 'lup_ugv.urdf.xacro'),
                               mappings=mappings).toxml()
 
@@ -156,6 +159,11 @@ def _launch_robot(context, *args, **kwargs):
     # so the node names match (/lup1/amcl, /lup1/local_costmap/local_costmap, ...).
     with open(os.path.join(bringup_pkg, 'config', 'nav2_params.yaml'), 'r', encoding='utf-8') as f:
         params = yaml.safe_load(f.read().replace('ROBOT', robot))
+    if variant == 'transport':
+        # Slower vehicle: the controller and the velocity smoother are capped at its top speed.
+        v = float(fleet['transport']['max_speed'])
+        params['controller_server']['ros__parameters']['FollowPath']['desired_linear_vel'] = v
+        params['velocity_smoother']['ros__parameters']['max_velocity'][0] = v
     nav2_params = _write_tmp(f'{robot}_nav2_', yaml.safe_dump({robot: params}))
 
     amcl_pose = {'initial_pose.x': x, 'initial_pose.y': y, 'initial_pose.yaw': yaw}
@@ -202,6 +210,8 @@ def _launch_robot(context, *args, **kwargs):
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robot', default_value='lup1', description='robot namespace'),
+        DeclareLaunchArgument('variant', default_value='interceptor',
+                              description='interceptor (LUP) or transport (TRN, slower, cargo box)'),
         DeclareLaunchArgument('composition', default_value='true',
                               description='run the navigation nodes as components of one process'),
         DeclareLaunchArgument('enable_camera', default_value='false'),

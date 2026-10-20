@@ -23,6 +23,14 @@ back to patrol once he is inside (the lidar no longer sees him). With
 soldiers (escort_by: soldier) the robot HOLDs until a soldier reports that
 he took over.
 
+Transport UGVs (M4, core/transport.py, parameter 'transports'). With a transport
+available, the interceptor that captured a person HOLDs him; the nearest
+transport is DISPATCHed (custody DISPATCHED), stops next to him on the side of
+the detention building, takes him over (custody ESCORTING, the interceptor is
+released at once), ESCORTs him to the detention building, then RETURNs to its
+parking place (STANDBY). Without a transport, or if it does not arrive within
+dispatch_timeout, the interceptor escorts him itself.
+
 Multi-robot roles (M4, core/roles.py). Every period the robots that are not
 holding or escorting a captured person get a role:
   ENGAGE  the behaviour above (INVESTIGATE / INTERCEPT / FOLLOW, and SEARCH
@@ -77,6 +85,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from perimeter_defense.core.geodesic import GeodesicGrid
 from perimeter_defense.core import roles
+from perimeter_defense.core.transport import choose_transport, pickup_point
 from perimeter_defense.core.interception import Interception, intercept_point, resample_along
 from perimeter_defense.ros_utils import lookup_pose2d, spin_node, to_sec
 from perimeter_defense_msgs.msg import (Custody, PredictedPathArray, RoleAssignment, Track,
@@ -121,6 +130,10 @@ class InterceptorAllocatorNode(Node):
     def __init__(self) -> None:
         super().__init__('interceptor_allocator')
         self.declare_parameter('robots', ['lup1'])
+        self.declare_parameter('transports', [''])          # transport UGVs ('' = none)
+        self.declare_parameter('dispatch_timeout', 90.0)    # s for a transport to reach the detainee
+        self.declare_parameter('handover_distance', 2.0)    # m, transport this close takes him over
+        self.declare_parameter('pickup_standoff', 1.5)      # m from the detainee, detention side
         self.declare_parameter('mode', 'predictive')         # predictive or naive
         self.declare_parameter('global_frame', 'map')
         self.declare_parameter('period', 0.3)
@@ -201,12 +214,27 @@ class InterceptorAllocatorNode(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.robots: Dict[str, RobotState] = {}
+        self.homes: Dict[str, Tuple[XY, float]] = {}       # transport parking place and heading
         for r in self.get_parameter('robots').value:
             self.robots[r] = RobotState(
                 name=r,
                 client=ActionClient(self, NavigateToPose, f'/{r}/navigate_to_pose'),
                 patrol_pub=self.create_publisher(Bool, f'/{r}/patrol_enable', 10),
                 speed_pub=self.create_publisher(SpeedLimit, f'/{r}/speed_limit', 10))
+        self.transports: Dict[str, RobotState] = {}
+        layout_routes = layout.patrol_routes
+        for t in [t for t in self.get_parameter('transports').value if t]:
+            self.transports[t] = RobotState(
+                name=t, role=RoleAssignment.STANDBY,
+                client=ActionClient(self, NavigateToPose, f'/{t}/navigate_to_pose'),
+                patrol_pub=self.create_publisher(Bool, f'/{t}/patrol_enable', 10),
+                speed_pub=self.create_publisher(SpeedLimit, f'/{t}/speed_limit', 10))
+            route = layout_routes[t]
+            self.homes[t] = (tuple(route[0]), math.atan2(route[1][1] - route[0][1], route[1][0] - route[0][0]))
+        self.handovers: Dict[int, Tuple[str, str]] = {}    # track -> (transport, interceptor holding him)
+        self.dispatch_timeout = float(self.get_parameter('dispatch_timeout').value)
+        self.handover_d = float(self.get_parameter('handover_distance').value)
+        self.pickup_standoff = float(self.get_parameter('pickup_standoff').value)
         self.tracks: Dict[int, Track] = {}
         self.custody: Dict[int, int] = {}
         self.custody_out: Dict[int, Custody] = {}     # reports of this node, repeated
@@ -317,7 +345,7 @@ class InterceptorAllocatorNode(Node):
 
     # -- main loop ----------------------------------------------------------
     def tick(self) -> None:
-        for r in self.robots.values():
+        for r in self.fleet():
             pose = lookup_pose2d(self.tf_buffer, self.frame, f'{r.name}/base_link')
             now = self.now_s()
             if pose and r.pose and now > r.pose_time:
@@ -325,7 +353,7 @@ class InterceptorAllocatorNode(Node):
                 r.vel = ((pose[0] - r.pose[0]) / dt, (pose[1] - r.pose[1]) / dt)
             r.pose, r.pose_time = pose, now
             r.intercept = None
-            if r.pose and self.grid is not None:
+            if r.pose and self.grid is not None and r.name in self.robots:
                 field = self.grid.distances_from(r.pose[:2])
                 if field is not None:
                     self.fields[r.name] = field
@@ -344,9 +372,76 @@ class InterceptorAllocatorNode(Node):
                     self.release(r)
 
         self.assign_roles(threats)
-        for r in self.robots.values():
+        for tr in self.transports.values():
+            self.step_transport(tr, now)
+        for r in self.fleet():
             self.publish_role(r)
         self.publish_markers()
+
+    def fleet(self) -> List[RobotState]:
+        return list(self.robots.values()) + list(self.transports.values())
+
+    # -- transport (M4) -------------------------------------------------------
+    def dispatch_transport(self, r: RobotState, now: float) -> bool:
+        """Send the nearest available transport to the person r holds."""
+        t = self.tracks.get(r.track_id)
+        avail = [tr.name for tr in self.transports.values()
+                 if tr.pose and tr.role in (RoleAssignment.STANDBY, RoleAssignment.RETURN)]
+        if t is None or not avail:
+            return False
+        p = (t.position.x, t.position.y)
+        name = choose_transport(avail, lambda n: math.dist(self.transports[n].pose[:2], p))
+        if name is None:
+            return False
+        tr = self.transports[name]
+        tr.role, tr.track_id, tr.phase_since, tr.goal = RoleAssignment.DISPATCH, r.track_id, now, None
+        self.handovers[r.track_id] = (name, r.name)
+        self.report_custody(tr, Custody.DISPATCHED)
+        self.get_logger().warn(f'{name}: DISPATCH to T{r.track_id} held by {r.name}')
+        return True
+
+    def step_transport(self, tr: RobotState, now: float) -> None:
+        if not tr.pose:
+            return
+        if tr.role == RoleAssignment.DISPATCH:
+            holder = self.robots.get(self.handovers.get(tr.track_id, ('', ''))[1])
+            t = self.tracks.get(tr.track_id)
+            if t is None or holder is None or now - tr.phase_since > self.dispatch_timeout:
+                # Too late or the person is gone: the interceptor escorts him itself.
+                self.get_logger().warn(f'{tr.name}: hand-over of T{tr.track_id} failed')
+                self.handovers.pop(tr.track_id, None)
+                if holder is not None and holder.role == RoleAssignment.HOLD and t is not None:
+                    self.start_escort(holder, now)
+                self.go_home(tr)
+                return
+            p = (t.position.x, t.position.y)
+            if math.dist(tr.pose[:2], p) <= self.handover_d:
+                self.cancel_goal(tr)
+                tr.role, tr.escort_phase, tr.phase_since = RoleAssignment.ESCORT, 'lead', now
+                self.report_custody(tr, Custody.ESCORTING)
+                self.handovers.pop(tr.track_id, None)
+                self.get_logger().warn(f'{tr.name}: took T{tr.track_id} over from {holder.name}, '
+                                       'escorting him to the detention building')
+                self.release(holder)
+                return
+            goal = self.clamp_inside(*pickup_point(p, self.robot_stop or p, self.pickup_standoff))
+            self.send_goal(tr, goal, math.atan2(p[1] - goal[1], p[0] - goal[0]))
+        elif tr.role == RoleAssignment.ESCORT:
+            self.check_escort(tr, now)
+        elif tr.role == RoleAssignment.RETURN:
+            home, yaw = self.homes[tr.name]
+            if math.dist(tr.pose[:2], home) < 0.6:
+                self.cancel_goal(tr)
+                tr.role = RoleAssignment.STANDBY
+                self.get_logger().info(f'{tr.name}: parked, STANDBY')
+            else:
+                self.send_goal(tr, home, yaw)
+
+    def go_home(self, tr: RobotState) -> None:
+        self.cancel_goal(tr)
+        tr.role, tr.track_id, tr.escort_phase, tr.target_xy = RoleAssignment.RETURN, 0, '', None
+        tr.speed_pub.publish(SpeedLimit(percentage=False, speed_limit=0.0))
+        self.get_logger().info(f'{tr.name}: RETURN to the parking place')
 
     # -- roles (M4) -----------------------------------------------------------
     def assign_roles(self, threats: List[Track]) -> None:
@@ -523,7 +618,7 @@ class InterceptorAllocatorNode(Node):
     def near_own_robot(self, t: Track, me: RobotState) -> bool:
         """Blue force deconfliction: a track next to another own robot and moving with it is
         a lidar ghost of that robot, whatever the IFF says yet."""
-        for o in self.robots.values():
+        for o in self.fleet():
             if o is me or not o.pose:
                 continue
             close = math.hypot(o.pose[0] - t.position.x, o.pose[1] - t.position.y) < self.own_robot_radius
@@ -655,10 +750,16 @@ class InterceptorAllocatorNode(Node):
             if self.custody.get(r.track_id) in (Custody.ESCORTING, Custody.DETAINED):
                 self.get_logger().info(f'{r.name}: T{r.track_id} handed over to a soldier')
                 self.release(r)
+        elif r.track_id in self.handovers:
+            pass        # a transport is on its way (step_transport releases r)
         elif now - r.hold_since >= self.hold_time and self.robot_stop is not None and r.pose:
-            r.role, r.escort_phase, r.phase_since = RoleAssignment.ESCORT, 'lead', now
-            self.report_custody(r, Custody.ESCORTING)
-            self.get_logger().warn(f'{r.name}: escorting T{r.track_id} to the detention building')
+            if not self.dispatch_transport(r, now):
+                self.start_escort(r, now)
+
+    def start_escort(self, r: RobotState, now: float) -> None:
+        r.role, r.escort_phase, r.phase_since = RoleAssignment.ESCORT, 'lead', now
+        self.report_custody(r, Custody.ESCORTING)
+        self.get_logger().warn(f'{r.name}: escorting T{r.track_id} to the detention building')
 
     def check_escort(self, r: RobotState, now: float) -> None:
         """Lead the captured person to the detention building at walking pace."""
@@ -676,7 +777,7 @@ class InterceptorAllocatorNode(Node):
                 self.cancel_goal(r)
                 if now - r.phase_since > self.handover_timeout:
                     self.get_logger().warn(f'{r.name}: lost T{r.track_id} during the escort')
-                    self.release(r)
+                    self.finish_escort(r)
                 return
             r.phase_since = now
             if math.hypot(t.position.x - r.pose[0], t.position.y - r.pose[1]) > self.escort_wait:
@@ -690,6 +791,13 @@ class InterceptorAllocatorNode(Node):
         if t is None or t.state == Track.STATE_LOST or now - r.phase_since > self.handover_timeout:
             self.report_custody(r, Custody.DETAINED)
             self.get_logger().warn(f'{r.name}: T{r.track_id} detained')
+            self.finish_escort(r)
+
+    def finish_escort(self, r: RobotState) -> None:
+        """After the escort an interceptor goes back to the defense, a transport parks."""
+        if r.name in self.transports:
+            self.go_home(r)
+        else:
             self.release(r)
 
     def report_custody(self, r: RobotState, state: int) -> None:
