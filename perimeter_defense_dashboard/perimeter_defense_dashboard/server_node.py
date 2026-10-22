@@ -3,7 +3,7 @@
 Serves the static web application, the base layout as /config.json
 (generated from zones.yaml, so the dashboard map always matches the world)
 and the top-down renders of the world package under /maps/. Live data comes
-from rosbridge (websocket, port 9090 by default), not from this server.
+from rosbridge (websocket, port 2526 by default), not from this server.
 """
 
 from __future__ import annotations
@@ -82,8 +82,8 @@ class DashboardServer(Node):
     def __init__(self) -> None:
         super().__init__('dashboard_server')
         self.declare_parameter('zones_file', '')
-        self.declare_parameter('port', 8080)
-        self.declare_parameter('rosbridge_port', 9090)
+        self.declare_parameter('port', 2525)
+        self.declare_parameter('rosbridge_port', 2526)
         self.declare_parameter('robots', ['lup1', 'lup2', 'lup3'])
         self.declare_parameter('routes', '')     # patrol routes drawn, '' = the robots' own
         port = int(self.get_parameter('port').value)

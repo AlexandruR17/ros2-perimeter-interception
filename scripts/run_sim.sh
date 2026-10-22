@@ -69,7 +69,7 @@ T0=$(date +%s.%N)
     echo "============================================================"
     if [ "$active" -ge "$n_robots" ]; then
         echo " [4/4] OK: $active robots localized (interceptors and transport)."
-        echo "       RViz and http://localhost:8080 (F5) should show them."
+        echo "       RViz and http://localhost:2525 (F5) should show them."
     else
         echo " [4/4] PROBLEM: only $active of $n_robots robots localized after ${CHECK_AFTER} s."
         echo "       Send the output of:"
@@ -114,7 +114,7 @@ print(get("sim_time"), get("real_time"))'; }
 CHECKER=$!
 
 echo "      simulation starting; ROS output in $LOG"
-echo "      report in ${CHECK_AFTER} s; dashboard: http://localhost:8080 ; stop: Ctrl+C"
+echo "      report in ${CHECK_AFTER} s; dashboard: http://localhost:2525 ; stop: Ctrl+C"
 if [ "$VERBOSE" = "1" ]; then
     ros2 launch perimeter_defense_bringup m2_track.launch.py robots:="$ROBOTS" \
         discovery_server:=true discovery_port:="$PORT" headless:=true "$@" 2>&1 | tee "$LOG"

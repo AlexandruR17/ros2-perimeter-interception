@@ -128,8 +128,8 @@ evaluation; a unit test checks that the `perimeter_defense` package never
 references them.
 | `fleet_markers` | / | `/tf` | `/fleet/markers` |
 | `c2_state` (dashboard) | / | `/threats/tracks`, `/threats/predicted_paths`, `/fleet/roles`, `/perimeter/*` alerts and custody, `/lupN/odom`, `/lupN/plan`, `/tf` | `/c2/state` (JSON, 4 Hz) |
-| `dashboard_server` | / | | HTTP :8080 (web page, `/config.json` from zones.yaml, `/maps/`) |
-| `rosbridge_websocket` | / | | websocket :9090 for the browser |
+| `dashboard_server` | / | | HTTP :2525 (web page, `/config.json` from zones.yaml, `/maps/`) |
+| `rosbridge_websocket` | / | | websocket :2526 for the browser |
 | `status_board` | / | `/threats/tracks`, `/perimeter/fence_alert`, `/perimeter/spot_reports`, `/fleet/roles`, `/perimeter/custody`, `/perimeter/transponders` | `/perimeter/status_board` |
 
 ## Environment
@@ -469,9 +469,9 @@ rosbridge:
 sudo apt install ros-jazzy-rosbridge-suite
 ```
 
-Open **http://localhost:8080** in a browser (on Windows the WSL ports are
+Open **http://localhost:2525** (port named after MIL-STD-2525; rosbridge on 2526) in a browser (on Windows the WSL ports are
 reachable on localhost). Live data comes from `/c2/state` through rosbridge on
-port 9090.
+port 2526.
 
 - Top: unit and base, threat level (provisional until the threat assessor of
   M5), Zulu date-time group and simulation time, link status with latency,

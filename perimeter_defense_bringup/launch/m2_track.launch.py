@@ -147,7 +147,7 @@ def generate_launch_description() -> LaunchDescription:
                               description='predictive (interception point) or naive (last position); '
                                           'switch at runtime from the dashboard or with ros2 param set'),
         DeclareLaunchArgument('dashboard', default_value='true',
-                              description='C2 web dashboard on http://localhost:8080'),
+                              description='C2 web dashboard on http://localhost:2525'),
         DeclareLaunchArgument('start_delay', default_value='15.0',
                               description='s before the intruder starts walking'),
         DeclareLaunchArgument('discovery_server', default_value='false',

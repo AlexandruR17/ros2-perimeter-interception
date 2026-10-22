@@ -1,6 +1,6 @@
 """C2 web dashboard: rosbridge websocket, the C2 state aggregator and the web server.
 
-Open http://localhost:8080 in a browser (Windows browsers reach WSL on
+Open http://localhost:2525 in a browser (Windows browsers reach WSL on
 localhost as well).
 """
 
@@ -39,8 +39,8 @@ def _launch(context, *args, **kwargs):
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robots', default_value='lup1,lup2,lup3'),
-        DeclareLaunchArgument('port', default_value='8080', description='web page port'),
+        DeclareLaunchArgument('port', default_value='2525', description='web page port'),
         DeclareLaunchArgument('routes', default_value='', description="patrol routes drawn, '' = robots'"),
-        DeclareLaunchArgument('rosbridge_port', default_value='9090'),
+        DeclareLaunchArgument('rosbridge_port', default_value='2526'),
         OpaqueFunction(function=_launch),
     ])
