@@ -10,8 +10,10 @@
 # 2. clears DDS settings exported by hand in the shell;
 # 3. starts the launch with a Fast DDS discovery server on a free port, so
 #    the ~50 processes of three robots all find each other;
-# 4. after CHECK_AFTER seconds prints whether every robot localized.
-# The full log is in ~/fob3_last.log.
+# 4. after CHECK_AFTER seconds prints whether every robot localized and a startup
+#    report, also saved in ~/fob3_startup.txt.
+# The terminal stays quiet: the ROS output goes to ~/fob3_last.log only
+# (VERBOSE=1 shows it in the terminal too). Stop with Ctrl+C.
 
 set -u
 ROBOTS=${ROBOTS:-lup1,lup2,lup3}
@@ -19,6 +21,8 @@ CHECK_AFTER=${CHECK_AFTER:-90}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 WS=${WS:-$(cd "$SCRIPT_DIR/../../.." && pwd)}
 LOG=${LOG:-$HOME/fob3_last.log}
+REPORT=${REPORT:-$HOME/fob3_startup.txt}
+VERBOSE=${VERBOSE:-0}
 
 echo "[1/4] stopping leftovers of previous runs"
 for p in "gz sim" "fast-discovery" "fastdds discovery" "rviz2" "_ros2_daemon"; do
@@ -60,6 +64,7 @@ T0=$(date +%s.%N)
 (
     sleep "$CHECK_AFTER"
     active=$(grep -c "lifecycle_manager_localization.*Managed nodes are active" "$LOG")
+    {
     echo
     echo "============================================================"
     if [ "$active" -ge "$n_robots" ]; then
@@ -91,12 +96,31 @@ for r in robots:
     cells = [f"{first[(r, k)]:6.0f}" if (r, k) in first else '     -' for k, _ in steps]
     print(f'                                 {r:5s}  {cells[0]}     {cells[1]}      {cells[2]}')
 PY
-    rtf=$(timeout 5 gz topic -e -t /stats -n 1 2>/dev/null | grep -m1 real_time_factor | awk '{print $2}')
+    # Average speed over 5 s (the instantaneous factor of /stats jumps around).
+    stats() { timeout 5 gz topic -e -t /stats -n 1 2>/dev/null | python3 -c '
+import re, sys
+t = sys.stdin.read()
+def get(name):
+    m = re.search(name + r" \{\s*sec: (\d+)(?:\s*nsec: (\d+))?", t)
+    return int(m.group(1)) + int(m.group(2) or 0) * 1e-9 if m else None
+print(get("sim_time"), get("real_time"))'; }
+    read -r s1 r1 <<< "$(stats)"; sleep 5; read -r s2 r2 <<< "$(stats)"
+    rtf=$(python3 -c "print(f'{($s2 - $s1) / ($r2 - $r1):.2f}')" 2>/dev/null)
     echo "       simulation speed (real time factor): ${rtf:-unknown} (1.0 = real time)"
+    echo "       (this report is saved in $REPORT)"
     echo "============================================================"
+    } | tee "$REPORT"
 ) &
 CHECKER=$!
 
-ros2 launch perimeter_defense_bringup m2_track.launch.py robots:="$ROBOTS" \
-    discovery_server:=true discovery_port:="$PORT" headless:=true "$@" 2>&1 | tee "$LOG"
+echo "      simulation starting; ROS output in $LOG"
+echo "      report in ${CHECK_AFTER} s; dashboard: http://localhost:8080 ; stop: Ctrl+C"
+if [ "$VERBOSE" = "1" ]; then
+    ros2 launch perimeter_defense_bringup m2_track.launch.py robots:="$ROBOTS" \
+        discovery_server:=true discovery_port:="$PORT" headless:=true "$@" 2>&1 | tee "$LOG"
+else
+    ros2 launch perimeter_defense_bringup m2_track.launch.py robots:="$ROBOTS" \
+        discovery_server:=true discovery_port:="$PORT" headless:=true "$@" > "$LOG" 2>&1
+fi
 kill "$CHECKER" 2>/dev/null
+echo "      simulation stopped"
