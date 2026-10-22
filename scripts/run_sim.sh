@@ -113,14 +113,22 @@ print(get("sim_time"), get("real_time"))'; }
 ) &
 CHECKER=$!
 
+# Lighter defaults (overridden by arguments given on the command line): low graphics
+# quality, and on WSL2 the sensors rendered by the GPU through the display instead of the
+# CPU (offscreen rendering does not use the GPU there).
+DEFAULTS=(quality:=low)
+if grep -qi microsoft /proc/version 2>/dev/null && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    DEFAULTS+=(headless_rendering:=false)
+fi
+echo "      launch options: ${DEFAULTS[*]} $*"
 echo "      simulation starting; ROS output in $LOG"
 echo "      report in ${CHECK_AFTER} s; dashboard: http://localhost:2525 ; stop: Ctrl+C"
 if [ "$VERBOSE" = "1" ]; then
     ros2 launch perimeter_defense_bringup m2_track.launch.py robots:="$ROBOTS" \
-        discovery_server:=true discovery_port:="$PORT" headless:=true "$@" 2>&1 | tee "$LOG"
+        discovery_server:=true discovery_port:="$PORT" headless:=true "${DEFAULTS[@]}" "$@" 2>&1 | tee "$LOG"
 else
     ros2 launch perimeter_defense_bringup m2_track.launch.py robots:="$ROBOTS" \
-        discovery_server:=true discovery_port:="$PORT" headless:=true "$@" > "$LOG" 2>&1
+        discovery_server:=true discovery_port:="$PORT" headless:=true "${DEFAULTS[@]}" "$@" > "$LOG" 2>&1
 fi
 kill "$CHECKER" 2>/dev/null
 echo "      simulation stopped"

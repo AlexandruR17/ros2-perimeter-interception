@@ -57,6 +57,7 @@ def _launch(context, *args, **kwargs):
         # Gazebo transport on loopback (see world.launch.py), for every process of the launch.
         SetEnvironmentVariable('GZ_IP', os.environ.get('GZ_IP', '127.0.0.1')),
         include('world.launch.py', {'world_variant': g('world_variant'), 'headless': g('headless'),
+                                    'headless_rendering': g('headless_rendering'),
                                     'quality': g('quality'), 'actors': actors}),
         TimerAction(period=3.0, actions=[
             *[include('robot.launch.py', {'robot': r, 'enable_camera': g('enable_camera'),
@@ -131,6 +132,8 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('world_variant', default_value='day'),
         DeclareLaunchArgument('headless', default_value='false'),
+        DeclareLaunchArgument('headless_rendering', default_value='true',
+                              description='false: sensors rendered through the display (GPU on WSL2)'),
         DeclareLaunchArgument('quality', default_value='high', description='high or low'),
         DeclareLaunchArgument('enable_camera', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='true'),

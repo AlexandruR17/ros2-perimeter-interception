@@ -74,7 +74,11 @@ def _gazebo(context, *args, **kwargs):
     fd, world = tempfile.mkstemp(prefix='fob3_scenario_', suffix='.sdf')
     with os.fdopen(fd, 'w') as f:
         f.write(sdf)
-    gz_args = f'-r -s --headless-rendering {world}' if headless else f'-r {world}'
+    # headless_rendering:=false keeps the server without GUI but renders the sensors through
+    # the display (on WSL2 the GPU through WSLg instead of the CPU through EGL).
+    offscreen = LaunchConfiguration('headless_rendering').perform(context).lower() == 'true'
+    gz_args = (f'-r -s {"--headless-rendering " if offscreen else ""}{world}' if headless
+               else f'-r {world}')
     return [IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
             get_package_share_directory('ros_gz_sim'), 'launch', 'gz_sim.launch.py')),
@@ -138,6 +142,9 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('world_variant', default_value='day',
                               description='day or night'),
+        DeclareLaunchArgument('headless_rendering', default_value='true',
+                              description='with headless:=true, render the sensors offscreen (EGL); '
+                                          'false uses the display (faster on WSL2 with a GPU)'),
         DeclareLaunchArgument('headless', default_value='false',
                               description='run the Gazebo server without GUI'),
         DeclareLaunchArgument('quality', default_value='high',
