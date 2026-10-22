@@ -413,7 +413,7 @@ DISPATCHED), stops next to him on the detention side, takes him over
 once), escorts him to the detention building and returns to its parking
 place (roles DISPATCH, ESCORT, RETURN, STANDBY on `/fleet/roles`). Without
 a transport, if it is busy, or if it has not arrived within 90 s, the
-interceptor escorts him itself as before. `transports:=''` disables it; with
+interceptor escorts him itself as before. `transports:=none` disables it; with
 soldiers the soldiers escort.
 
 ### Robots seeing robots

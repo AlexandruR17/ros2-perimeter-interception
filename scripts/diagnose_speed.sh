@@ -76,7 +76,7 @@ echo "Measuring the simulation speed (about 5 minutes)..."
     printf '%-38s %6s   %s\n' "configuration" "speed" "busiest processes (CPU, 100% = one thread)"
 } > "$OUT.tmp"
 run "world only (no robots)"            world.launch.py headless:=true quality:=low "${RENDER[@]}"
-run "1 robot"                           m2_track.launch.py robots:=lup2 transports:= rviz:=false dashboard:=false \
+run "1 robot"                           m2_track.launch.py robots:=lup2 transports:=none rviz:=false dashboard:=false \
                                         headless:=true quality:=low discovery_server:=true start_delay:=900 "${RENDER[@]}"
 run "3 robots + transport"              m2_track.launch.py robots:=lup1,lup2,lup3 rviz:=false dashboard:=false \
                                         headless:=true quality:=low discovery_server:=true start_delay:=900 "${RENDER[@]}"

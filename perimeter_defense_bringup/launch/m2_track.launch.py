@@ -50,7 +50,7 @@ def _launch(context, *args, **kwargs):
     callsigns = [load_layout().soldiers[s].callsign for s in soldiers]
     actors = ','.join(['intruder1:north_breach'] + [f'{s}:soldier' for s in soldiers])
     # Transport UGVs take captured persons over (not with soldiers, who escort them).
-    transports = [] if soldiers else [t for t in g('transports').split(',') if t]
+    transports = [] if soldiers else [t for t in g('transports').split(',') if t and t != 'none']
     fleet = robots + transports
 
     actions = [
@@ -143,7 +143,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('robots', default_value='lup2',
                               description='comma separated, e.g. lup1,lup2,lup3'),
         DeclareLaunchArgument('transports', default_value='trn1',
-                              description="transport UGVs escorting captured persons ('' = the "
+                              description='transport UGVs escorting captured persons (none = the '
                                           'interceptor escorts them itself)'),
         DeclareLaunchArgument('soldiers', default_value='false',
                               description='own soldiers on foot (spot reports, escort); '
