@@ -17,7 +17,8 @@ import yaml
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (AppendEnvironmentVariable, DeclareLaunchArgument,
-                            IncludeLaunchDescription, LogInfo, OpaqueFunction, Shutdown)
+                            IncludeLaunchDescription, LogInfo, OpaqueFunction, SetEnvironmentVariable,
+                            Shutdown)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -146,6 +147,10 @@ def generate_launch_description() -> LaunchDescription:
                               description='s of simulation time between two ROS /clock messages'),
         DeclareLaunchArgument('actors', default_value='',
                               description='scenario actors, "name:spawn,name:spawn"'),
+        # Gazebo transport on the loopback interface only: its multicast discovery on the
+        # network interfaces is unreliable on WSL2 and could delay the robot spawn service by
+        # tens of seconds. Everything runs on one machine. An exported GZ_IP is kept.
+        SetEnvironmentVariable('GZ_IP', os.environ.get('GZ_IP', '127.0.0.1')),
         AppendEnvironmentVariable('GZ_SIM_RESOURCE_PATH', os.path.join(world_pkg, 'models')),
         AppendEnvironmentVariable('GZ_SIM_SYSTEM_PLUGIN_PATH', os.path.join(
             get_package_prefix('perimeter_defense_gz_plugins'), 'lib')),

@@ -54,6 +54,8 @@ def _launch(context, *args, **kwargs):
     fleet = robots + transports
 
     actions = [
+        # Gazebo transport on loopback (see world.launch.py), for every process of the launch.
+        SetEnvironmentVariable('GZ_IP', os.environ.get('GZ_IP', '127.0.0.1')),
         include('world.launch.py', {'world_variant': g('world_variant'), 'headless': g('headless'),
                                     'quality': g('quality'), 'actors': actors}),
         TimerAction(period=3.0, actions=[
