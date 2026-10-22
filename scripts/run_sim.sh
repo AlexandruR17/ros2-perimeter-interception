@@ -29,6 +29,7 @@ rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* /dev/shm/fastdds_* /dev/shm/se
 
 echo "[2/4] clearing DDS settings of this shell"
 unset FASTDDS_BUILTIN_TRANSPORTS ROS_DISCOVERY_SERVER ROS_SUPER_CLIENT RMW_FASTRTPS_USE_QOS_FROM_XML
+export GZ_IP=127.0.0.1      # Gazebo transport on loopback (same as the launch)
 if grep -qE "ROS_DISCOVERY_SERVER|ROS_SUPER_CLIENT|FASTDDS_BUILTIN_TRANSPORTS" "$HOME/.bashrc" 2>/dev/null; then
     echo "      note: ~/.bashrc still sets DDS variables; remove them with:"
     echo "      sed -i '/ROS_DISCOVERY_SERVER/d; /ROS_SUPER_CLIENT/d; /FASTDDS_BUILTIN_TRANSPORTS/d' ~/.bashrc"
@@ -55,19 +56,43 @@ source "$WS/install/setup.bash"
 set -u
 
 n_robots=$(echo "$ROBOTS" | tr ',' '\n' | grep -c .)
+T0=$(date +%s.%N)
 (
     sleep "$CHECK_AFTER"
     active=$(grep -c "lifecycle_manager_localization.*Managed nodes are active" "$LOG")
     echo
     echo "============================================================"
     if [ "$active" -ge "$n_robots" ]; then
-        echo " [4/4] OK: $active of $n_robots robots localized."
+        echo " [4/4] OK: $active robots localized (interceptors and transport)."
         echo "       RViz and http://localhost:8080 (F5) should show them."
     else
         echo " [4/4] PROBLEM: only $active of $n_robots robots localized after ${CHECK_AFTER} s."
         echo "       Send the output of:"
         echo "       grep -E 'process has died|Server is running|Managed nodes are active|Aborting' $LOG"
     fi
+    # Startup timeline: seconds after the start for each robot.
+    python3 - "$LOG" "$T0" <<'PY'
+import re, sys
+log, t0 = sys.argv[1], float(sys.argv[2])
+steps = [('localized', r'\[(\w+)\.lifecycle_manager_localization\].*Managed nodes are active'),
+         ('navigation', r'\[(\w+)\.lifecycle_manager_navigation\].*Managed nodes are active'),
+         ('patrol', r'\[(\w+)\.patrol\].*patrol waypoint')]
+first = {}
+for line in open(log, errors='ignore'):
+    line = re.sub(r'\x1b\[[0-9;]*m', '', line)
+    m = re.search(r'\[(\d{10}\.\d+)\]', line)
+    for k, p in steps:
+        mm = m and re.search(p, line)
+        if mm:
+            first.setdefault((mm.group(1), k), float(m.group(1)) - t0)
+robots = sorted({r for r, _ in first})
+print('       startup (s after start):  robot  localized  navigation  first patrol goal')
+for r in robots:
+    cells = [f"{first[(r, k)]:6.0f}" if (r, k) in first else '     -' for k, _ in steps]
+    print(f'                                 {r:5s}  {cells[0]}     {cells[1]}      {cells[2]}')
+PY
+    rtf=$(timeout 5 gz topic -e -t /stats -n 1 2>/dev/null | grep -m1 real_time_factor | awk '{print $2}')
+    echo "       simulation speed (real time factor): ${rtf:-unknown} (1.0 = real time)"
     echo "============================================================"
 ) &
 CHECKER=$!
