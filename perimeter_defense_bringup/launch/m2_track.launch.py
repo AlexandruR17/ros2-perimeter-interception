@@ -61,10 +61,10 @@ def _launch(context, *args, **kwargs):
                                     'quality': g('quality'), 'actors': actors}),
         TimerAction(period=3.0, actions=[
             *[include('robot.launch.py', {'robot': r, 'enable_camera': g('enable_camera'),
-                                          'patrol_route': patrol_route})
+                                          'patrol_route': patrol_route, 'lidar_rate': g('lidar_rate')})
               for r in robots],
             *[include('robot.launch.py', {'robot': t, 'enable_camera': 'false', 'start_patrol': 'false',
-                                          'variant': 'transport'})
+                                          'variant': 'transport', 'lidar_rate': g('lidar_rate')})
               for t in transports],
             include('intruder.launch.py', {'name': 'intruder1', 'spawn': 'north_breach',
                                            'route': g('route'), 'start_delay': g('start_delay'),
@@ -132,6 +132,8 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('world_variant', default_value='day'),
         DeclareLaunchArgument('headless', default_value='false'),
+        DeclareLaunchArgument('lidar_rate', default_value='',
+                              description="robot lidar scans per second ('' = 10); 5 halves the rendering load"),
         DeclareLaunchArgument('headless_rendering', default_value='true',
                               description='false: sensors rendered through the display (GPU on WSL2)'),
         DeclareLaunchArgument('quality', default_value='high', description='high or low'),

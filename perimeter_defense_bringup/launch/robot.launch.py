@@ -152,6 +152,9 @@ def _launch_robot(context, *args, **kwargs):
     mappings.update({'ns': robot, 'enable_camera': 'true' if camera else 'false', 'variant': variant})
     if variant == 'transport':
         mappings['max_linear_velocity'] = str(fleet['transport']['max_speed'])
+    lidar_rate = LaunchConfiguration('lidar_rate').perform(context)
+    if lidar_rate:
+        mappings['lidar_rate'] = lidar_rate      # lighter simulation (each scan is a render)
     urdf = xacro.process_file(os.path.join(desc_pkg, 'urdf', 'lup_ugv.urdf.xacro'),
                               mappings=mappings).toxml()
 
@@ -210,6 +213,8 @@ def _launch_robot(context, *args, **kwargs):
 def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument('robot', default_value='lup1', description='robot namespace'),
+        DeclareLaunchArgument('lidar_rate', default_value='',
+                              description="lidar scans per second ('' = lup_ugv.yaml, 10)"),
         DeclareLaunchArgument('variant', default_value='interceptor',
                               description='interceptor (LUP) or transport (TRN, slower, cargo box)'),
         DeclareLaunchArgument('composition', default_value='true',
