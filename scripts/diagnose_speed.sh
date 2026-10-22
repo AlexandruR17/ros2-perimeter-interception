@@ -16,7 +16,10 @@ LOG=$(mktemp /tmp/fob3_speed_XXXX.log)
 cleanup() {
     for p in "gz sim" "fast-discovery" "rviz2" "_ros2_daemon"; do pkill -9 -f "$p" 2>/dev/null; done
     pkill -9 -f "$WS/install/" 2>/dev/null
-    sleep 2
+    # Wait until the previous Gazebo server is really gone (the launch refuses to start
+    # next to a running one).
+    for _ in $(seq 1 20); do pgrep -f "gz sim" > /dev/null || break; sleep 0.5; done
+    sleep 1
     rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null
 }
 
